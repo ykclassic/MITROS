@@ -37,4 +37,4 @@ class ProviderResponse(BaseModel):
     model_config=ConfigDict(frozen=True)
     provider:str; provider_version:str|None=None
     observed_at:datetime
-    payload:dict
+    payload:dict[str,object]
