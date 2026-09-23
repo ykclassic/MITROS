@@ -19,7 +19,8 @@ def limits() -> RiskLimits:
         max_position_fraction=Decimal("0.02"), max_gross_exposure=Decimal("1.0"),
         max_daily_loss_fraction=Decimal("0.03"), max_drawdown_fraction=Decimal("0.10"),
         max_concentration_fraction=Decimal("0.10"), max_leverage=Decimal("1.0"),
-        max_spread_fraction=Decimal("0.01"),
+        max_spread_fraction=Decimal("0.01"), max_risk_fraction=Decimal("0.001"),
+        max_correlation_exposure=Decimal("0.50"),
     )
 
 
@@ -49,6 +50,18 @@ def test_risk_rejects_drawdown():
 
 def test_risk_rejects_spread():
     result = AdvancedRiskEngine(limits()).assess(portfolio(), "ETH/USD", Decimal("1000"), Decimal("0.02"), Decimal("0.02"))
+    assert not result.approved
+
+
+def test_risk_rejects_risk_budget():
+    result = AdvancedRiskEngine(limits()).assess(portfolio(), "ETH/USD", Decimal("1000"), Decimal("0.02"))
+    assert result.approved
+    rejected = AdvancedRiskEngine(limits()).assess(portfolio(), "ETH/USD", Decimal("1000"), Decimal("0.20"))
+    assert not rejected.approved
+
+
+def test_risk_rejects_correlated_exposure():
+    result = AdvancedRiskEngine(limits()).assess(portfolio(), "ETH/USD", Decimal("1000"), Decimal("0.02"), correlated_exposure=Decimal("0.50"))
     assert not result.approved
 
 
