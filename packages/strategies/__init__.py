@@ -1,4 +1,5 @@
 from .base import StrategyContext, StrategyPlugin
+from .crt import CRTStrategy
 from .smc import SMCStrategy
 
-__all__ = ["SMCStrategy", "StrategyContext", "StrategyPlugin"]
+__all__ = ["CRTStrategy", "SMCStrategy", "StrategyContext", "StrategyPlugin"]
