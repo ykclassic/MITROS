@@ -114,7 +114,7 @@ class SMCStrategy(StrategyPlugin):
         candidates.sort(key=lambda event: event.confirmation_index)
         for i in range(1, len(candidates)):
             if candidates[i].direction is not candidates[i - 1].direction:
-                candidates[i] = candidates[i].model_copy(update={"kind": StructureBreak.CHOCH})
+                candidates[i] = candidates[i].model_copy(update={"kind": StructureBreakKind.CHOCH})
         return candidates[-6:]
 
     @staticmethod
@@ -159,14 +159,14 @@ class SMCStrategy(StrategyPlugin):
     @staticmethod
     def _bias(events: Sequence[StructureBreak], sweeps: Sequence[LiquiditySweep], gaps: Sequence[FairValueGap], blocks: Sequence[OrderBlock]) -> DirectionBias:
         scores = {DirectionBias.BULLISH: 0, DirectionBias.BEARISH: 0}
-        for item in events[-2:]:
-            scores[item.direction] += 3 if item.kind is StructureBreakKind.CHOCH else 2
-        for item in sweeps[-2:]:
-            scores[item.direction] += 2
-        for item in gaps[-2:]:
-            scores[item.direction] += 1
-        for item in blocks[-2:]:
-            scores[item.direction] += 1
+        for event in events[-2:]:
+            scores[event.direction] += 3 if event.kind is StructureBreakKind.CHOCH else 2
+        for sweep in sweeps[-2:]:
+            scores[sweep.direction] += 2
+        for gap in gaps[-2:]:
+            scores[gap.direction] += 1
+        for block in blocks[-2:]:
+            scores[block.direction] += 1
         if scores[DirectionBias.BULLISH] == scores[DirectionBias.BEARISH]:
             return DirectionBias.NEUTRAL
         return DirectionBias.BULLISH if scores[DirectionBias.BULLISH] > scores[DirectionBias.BEARISH] else DirectionBias.BEARISH
