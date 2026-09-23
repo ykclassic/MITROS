@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from hashlib import sha256
 from itertools import pairwise
+import json
 from packages.market_data.contracts import Candle, DataQuality
 
 def validate_dataset(candles: Sequence[Candle]) -> tuple[Candle, ...]:
@@ -20,5 +21,5 @@ def validate_dataset(candles: Sequence[Candle]) -> tuple[Candle, ...]:
 
 def dataset_checksum(candles: Sequence[Candle]) -> str:
     ordered = validate_dataset(candles)
-    canonical = "|".join(c.model_dump_json(sort_keys=True) for c in ordered)
+    canonical = "|".join(json.dumps(c.model_dump(mode="json"), sort_keys=True, separators=(",", ":")) for c in ordered)
     return sha256(canonical.encode("utf-8")).hexdigest()
