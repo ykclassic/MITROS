@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from decimal import Decimal
+from itertools import pairwise
 
 from contracts.regime import StatisticalSnapshot
 from packages.market_data.contracts import Candle, DataQuality
@@ -15,7 +16,7 @@ class StatisticalEngine:
 
     def analyze(self, candles: Sequence[Candle]) -> StatisticalSnapshot:
         ordered = self._validate(candles)
-        returns = [(c.close / p.close) - Decimal("1") for p, c in zip(ordered, ordered[1:])]
+        returns = [(c.close / p.close) - Decimal("1") for p, c in pairwise(ordered)]
         mean = sum(returns, Decimal("0")) / Decimal(len(returns))
         volatility = self._stddev(returns)
         wins = sum(r > 0 for r in returns)
@@ -58,7 +59,7 @@ class StatisticalEngine:
         if len(values) < 3:
             return Decimal("0")
         mean = sum(values, Decimal("0")) / Decimal(len(values))
-        numerator = sum(((a - mean) * (b - mean) for a, b in zip(values, values[1:])), Decimal("0"))
+        numerator = sum(((a - mean) * (b - mean) for a, b in pairwise(values)), Decimal("0"))
         denominator = sum(((v - mean) ** 2 for v in values), Decimal("0"))
         if denominator == 0:
             return Decimal("0")
