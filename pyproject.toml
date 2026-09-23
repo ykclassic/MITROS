@@ -20,3 +20,5 @@ addopts="-q"
 [tool.mypy]
 python_version="3.12"
 strict=true
+[tool.ruff.lint]
+ignore=["BLE001","FURB157","I001","UP017"]
