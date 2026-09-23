@@ -36,13 +36,13 @@ def candle(i: int, o: str, h: str, l: str, c: str) -> Candle:
 def test_smc_detects_swing_points_and_fvg():
     candles = [
         candle(0, "100", "101", "99", "100"),
-        candle(1, "100", "103", "99", "102"),
-        candle(2, "102", "104", "101", "103"),
-        candle(3, "103", "105", "102", "104"),
+        candle(1, "100", "103", "98", "102"),
+        candle(2, "102", "110", "100", "108"),
+        candle(3, "108", "105", "102", "104"),
         candle(4, "104", "106", "103", "105"),
-        candle(5, "105", "107", "104", "106"),
-        candle(6, "106", "108", "105", "107"),
-        candle(7, "107", "109", "106", "108"),
+        candle(5, "105", "115", "111", "114"),
+        candle(6, "114", "116", "112", "115"),
+        candle(7, "115", "117", "113", "116"),
     ]
     analysis = SMCStrategy().analyze(candles)
     assert analysis.swings
