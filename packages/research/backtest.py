@@ -17,16 +17,19 @@ class BacktestEngine:
     def _config_checksum(config: BacktestConfig) -> str:
         return sha256(config.model_dump_json(sort_keys=True).encode()).hexdigest()
 
-    def run(self, candles: Sequence[Candle], strategy: StrategyPlugin, config: BacktestConfig) -> BacktestResult:
+    def run(self, candles: Sequence[Candle], strategy: StrategyPlugin, config: BacktestConfig,
+            evaluation_start: int = 49) -> BacktestResult:
         data = validate_dataset(candles)
         if len(data) < 51:
             raise ValueError("backtest requires at least 51 verified candles")
+        if not 49 <= evaluation_start < len(data) - 1:
+            raise ValueError("evaluation_start must leave a feature warmup and next bar")
         if config.strategy_id != strategy.strategy_id or config.strategy_version != strategy.strategy_version:
             raise ValueError("strategy identity does not match backtest configuration")
         equity = config.initial_equity
         trades: list[BacktestTrade] = []
         curve: list[Decimal] = [equity]
-        for i in range(49, len(data) - 1):
+        for i in range(evaluation_start, len(data) - 1):
             history = data[: i + 1]
             features = self.feature_engine.snapshot(history)
             vote = strategy.evaluate(StrategyContext(candles=history, features=features))
