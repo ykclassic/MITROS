@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from decimal import Decimal, getcontext
+from itertools import pairwise
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -44,7 +45,7 @@ def rsi(values: Sequence[Decimal], period: int = 14) -> Decimal | None:
         return None
     gains: list[Decimal] = []
     losses: list[Decimal] = []
-    for previous, current in zip(values[:-1], values[1:]):
+    for previous, current in pairwise(values):
         change = current - previous
         gains.append(max(change, ZERO))
         losses.append(max(-change, ZERO))
