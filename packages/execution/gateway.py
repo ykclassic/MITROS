@@ -1,4 +1,4 @@
-from contracts.domain import Direction, ExecutionStatus, TradeProposal
+from contracts.domain import ApprovalStatus, Direction, ExecutionStatus, TradeProposal
 from packages.execution.interface import (
     ExecutionGateway,
     ExecutionOrder,
@@ -21,7 +21,7 @@ class ProposalExecutionGateway:
         self._approval_digest = approval_digest
 
     def submit(self, proposal: TradeProposal, approval_token: str) -> ExecutionResult:
-        if proposal.approval_status is not proposal.approval_status.APPROVED:
+        if proposal.approval_status is not ApprovalStatus.APPROVED:
             raise ValueError("proposal is not human-approved")
         if proposal.execution_status not in {
             ExecutionStatus.NOT_AUTHORIZED,
