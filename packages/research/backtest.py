@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from decimal import Decimal
 from hashlib import sha256
+import json
 from packages.features.engine import FeatureEngine
 from packages.strategies.base import StrategyContext, StrategyPlugin
 from contracts.backtest import BacktestConfig, BacktestResult, BacktestTrade
@@ -15,7 +16,8 @@ class BacktestEngine:
 
     @staticmethod
     def _config_checksum(config: BacktestConfig) -> str:
-        return sha256(config.model_dump_json(sort_keys=True).encode()).hexdigest()
+        payload = json.dumps(config.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+        return sha256(payload.encode()).hexdigest()
 
     def run(self, candles: Sequence[Candle], strategy: StrategyPlugin, config: BacktestConfig,
             evaluation_start: int = 49) -> BacktestResult:
