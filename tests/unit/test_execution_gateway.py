@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from contracts.approval import ApprovalOutcome
-from contracts.domain import Direction, ExecutionStatus, StrategyVote
+from contracts.domain import Direction, StrategyVote, TradeProposal
 from contracts.risk import RiskAssessment
 from contracts.signal import SignalRecord
 from packages.approval.manager import HumanApprovalManager
@@ -15,7 +15,7 @@ from packages.execution.security import approval_token_digest
 from packages.proposals.builder import TradeProposalBuilder
 
 
-def proposal() -> tuple[object, ApprovalOutcome]:
+def proposal() -> tuple[TradeProposal, ApprovalOutcome]:
     now = datetime(2026, 1, 1, tzinfo=UTC)
     signal = SignalRecord(
         asset="BTC/USDT", venue="paper", direction=Direction.LONG,
