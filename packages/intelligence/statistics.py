@@ -38,7 +38,7 @@ class StatisticalEngine:
         ordered = sorted(candles, key=lambda c: c.open_time)
         if any(c.quality is not DataQuality.VERIFIED for c in ordered):
             raise ValueError("statistical analysis requires VERIFIED candles")
-        for previous, current in zip(ordered, ordered[1:]):
+        for previous, current in pairwise(ordered):
             if current.open_time <= previous.open_time:
                 raise ValueError("duplicate or non-increasing candle timestamps")
         first = ordered[0]
