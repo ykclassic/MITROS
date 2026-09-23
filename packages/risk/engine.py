@@ -16,8 +16,9 @@ class AdvancedRiskEngine:
         requested_size: Decimal,
         stop_distance_fraction: Decimal,
         spread_fraction: Decimal = Decimal("0"),
+        correlated_exposure: Decimal = Decimal("0"),
     ) -> RiskAssessment:
-        if requested_size <= 0 or stop_distance_fraction <= 0 or spread_fraction < 0:
+        if requested_size <= 0 or stop_distance_fraction <= 0 or spread_fraction < 0 or correlated_exposure < 0:
             raise ValueError("risk inputs must be positive")
         checks = tuple(RiskCheck)
         proposed_fraction = requested_size / portfolio.equity
@@ -39,10 +40,15 @@ class AdvancedRiskEngine:
             failures.append("leverage limit exceeded")
         if portfolio.drawdown > self.limits.max_drawdown_fraction:
             failures.append("drawdown limit exceeded")
+        risk_fraction = proposed_fraction * stop_distance_fraction
+        if risk_fraction > self.limits.max_risk_fraction:
+            failures.append("risk budget exceeded")
+        if correlated_exposure + proposed_fraction > self.limits.max_correlation_exposure:
+            failures.append("correlated exposure limit exceeded")
         if spread_fraction > self.limits.max_spread_fraction:
             failures.append("spread limit exceeded")
         approved = not failures
-        risk_score = min(Decimal("1"), max(proposed_fraction, daily_loss, portfolio.drawdown))
+        risk_score = min(Decimal("1"), max(proposed_fraction, risk_fraction, daily_loss, portfolio.drawdown, correlated_exposure))
         return RiskAssessment(
             approved=approved,
             requested_size=requested_size,
