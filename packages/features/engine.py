@@ -1,9 +1,16 @@
 from collections.abc import Sequence
 from decimal import Decimal
+from itertools import pairwise
+from typing import TYPE_CHECKING
+
 from contracts.domain import Provenance
 from packages.market_data.contracts import Candle, DataQuality
+
 from .contracts import FeatureEngineConfig, FeatureSet
 from .indicators import atr, bollinger, ema, macd, percentage_return, rsi, sma
+
+if TYPE_CHECKING:
+    from contracts.features import FeatureSnapshot
 
 DEFAULT_FEATURE_SET = FeatureSet(
     key="technical_core",
@@ -56,10 +63,12 @@ class FeatureEngine:
             })
         missing = [name for name in cfg.feature_set.indicators if features.get(name) is None]
         if missing:
-            raise ValueError(f"Insufficient history for feature set {cfg.feature_set.key}: {', '.join(missing)}")
-        return {name: features[name] for name in cfg.feature_set.indicators if features[name] is not None}
+            raise ValueError(
+                f"Insufficient history for feature set {cfg.feature_set.key}: {', '.join(missing)}"
+            )
+        return {name: value for name in cfg.feature_set.indicators if (value := features[name]) is not None}
 
-    def snapshot(self, candles: Sequence[Candle]) -> "FeatureSnapshot":
+    def snapshot(self, candles: Sequence[Candle]) -> FeatureSnapshot:
         from contracts.features import FeatureSnapshot
         ordered = self._validate(candles)
         latest = ordered[-1]
@@ -88,7 +97,7 @@ class FeatureEngine:
             raise ValueError("All candles must share asset, venue and timeframe")
         if any(c.quality != DataQuality.VERIFIED for c in ordered):
             raise ValueError("Feature computation requires VERIFIED candles")
-        if any(current.open_time <= previous.open_time for previous, current in zip(ordered, ordered[1:])):
+        if any(current.open_time <= previous.open_time for previous, current in pairwise(ordered)):
             raise ValueError("Duplicate or non-increasing candle timestamps")
         if len(ordered) < self.config.minimum_history:
             raise ValueError(f"At least {self.config.minimum_history} completed candles are required")
