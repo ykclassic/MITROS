@@ -16,8 +16,8 @@ class TwelveDataProvider(HTTPProviderBase):
         meta=data.get("meta",{})
         observed=datetime.fromisoformat(str(meta.get("last_refresh",values[0]["datetime"])))
         return [Candle(asset=request.asset,venue=request.venue,timeframe=request.timeframe or "1h",
-            open_time=datetime.fromisoformat(str(x["datetime"]).replace("Z","+00:00")),
-            close_time=datetime.fromisoformat(str(x["datetime"]).replace("Z","+00:00")),
+            open_time=datetime.fromisoformat(str(x["datetime"])),
+            close_time=datetime.fromisoformat(str(x["datetime"])),
             open=Decimal(x["open"]),high=Decimal(x["high"]),low=Decimal(x["low"]),close=Decimal(x["close"]),
             volume=Decimal(x["volume"]) if x.get("volume") else None,provider=self.id,provider_version=self.version,
             observed_at=observed,received_at=datetime.now(UTC)) for x in values]
