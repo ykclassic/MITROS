@@ -1,7 +1,6 @@
 from datetime import UTC,datetime
 from typing import Any
 import httpx
-from .contracts import MarketDataRequest
 
 class ProviderHTTPError(RuntimeError): pass
 
@@ -24,5 +23,5 @@ class HTTPProviderBase:
         finally:
             if self._client is None: await client.aclose()
 
-def utc_from_epoch(value:int|float)->datetime:
+def utc_from_epoch(value:float)->datetime:
     return datetime.fromtimestamp(value,tz=UTC)
