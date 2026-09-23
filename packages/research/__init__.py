@@ -8,8 +8,8 @@ from .walk_forward import WalkForwardEngine
 
 __all__ = [
     "BacktestEngine",
-    "ResearchPlatform",
     "ReplayEngine",
+    "ResearchPlatform",
     "VerifiedDataset",
     "WalkForwardEngine",
     "max_drawdown",
