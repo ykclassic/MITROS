@@ -59,7 +59,7 @@ def test_invalid_token_fails_closed_without_submission() -> None:
     boundary = ProposalExecutionGateway(
         paper, approval_digest=approval_token_digest(outcome.approval.approval_token or ""),
     )
-    approved = p.model_copy(update={"approval_status": "APPROVED"})
+    approved = p.model_copy(update={"approval_status": ApprovalStatus.APPROVED})
     with pytest.raises(ValueError, match="invalid approval token"):
         boundary.submit(approved, "forged")
     assert paper.reconcile(str(p.id)) is None
@@ -67,7 +67,7 @@ def test_invalid_token_fails_closed_without_submission() -> None:
 
 def test_gateway_maps_short_to_sell_and_is_idempotent() -> None:
     p, outcome = proposal()
-    short = p.model_copy(update={"direction": Direction.SHORT, "approval_status": "APPROVED"})
+    short = p.model_copy(update={"direction": Direction.SHORT, "approval_status": ApprovalStatus.APPROVED})
     paper = PaperExecutionGateway()
     boundary = ProposalExecutionGateway(
         paper, approval_digest=approval_token_digest(outcome.approval.approval_token or ""),
