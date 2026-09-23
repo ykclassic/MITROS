@@ -78,8 +78,8 @@ class AlphaVantageProvider(HTTPProviderBase):
             close_time=datetime.fromisoformat(ts.replace(" ","T")).replace(tzinfo=UTC),
             open=Decimal(str(row.get("1. open") or row.get("1a. open (USD)"))),
             high=Decimal(str(row.get("2. high") or row.get("2a. high (USD)"))),
-            low=Decimal(str(row.get("3. low") or row.get("3a. low (USD)")),
-            close=Decimal(str(row.get("4. close") or row.get("4a. close (USD)")),
+            low=Decimal(str(row.get("3. low") or row.get("3a. low (USD)"))),
+            close=Decimal(str(row.get("4. close") or row.get("4a. close (USD)"))),
             volume=Decimal(str(row.get("5. volume") or row.get("5. volume (USD)") or "0")),
             provider=self.id,provider_version=self.version,observed_at=observed,received_at=datetime.now(UTC))
             for ts,row in items]
