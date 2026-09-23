@@ -23,7 +23,7 @@ class ResearchArtifact(BaseModel):
     version: str = Field(min_length=1)
     checksum: str = Field(min_length=64, max_length=64)
     created_at: datetime
-    metadata: dict[str, str] = {}
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class ResearchQuery(BaseModel):
