@@ -49,6 +49,8 @@ class RiskLimits(BaseModel):
     max_concentration_fraction: Decimal = Field(gt=0, le=1)
     max_leverage: Decimal = Field(gt=0)
     max_spread_fraction: Decimal = Field(gt=0, le=1)
+    max_risk_fraction: Decimal = Field(gt=0, le=1)
+    max_correlation_exposure: Decimal = Field(gt=0)
 
 
 class RiskAssessment(BaseModel):
