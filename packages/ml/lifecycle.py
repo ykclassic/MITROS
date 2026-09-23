@@ -1,4 +1,4 @@
-from datetime import datetime
+from typing import ClassVar
 
 from contracts.ml import ModelLifecycleStage, ModelVersion, ValidationResult
 
@@ -6,7 +6,7 @@ from contracts.ml import ModelLifecycleStage, ModelVersion, ValidationResult
 class ModelLifecycle:
     """Fail-closed model registry transition rules."""
 
-    _allowed = {
+    _allowed: ClassVar[dict[ModelLifecycleStage, set[ModelLifecycleStage]]] = {
         ModelLifecycleStage.DEVELOPED: {ModelLifecycleStage.VALIDATED, ModelLifecycleStage.RETIRED},
         ModelLifecycleStage.VALIDATED: {ModelLifecycleStage.STAGED, ModelLifecycleStage.RETIRED},
         ModelLifecycleStage.STAGED: {ModelLifecycleStage.PRODUCTION, ModelLifecycleStage.RETIRED},
@@ -26,4 +26,4 @@ class ModelLifecycle:
     def transition(self, model: ModelVersion, target: ModelLifecycleStage) -> ModelVersion:
         if target not in self._allowed[model.stage]:
             raise ValueError(f"invalid model lifecycle transition: {model.stage} -> {target}")
-        return model.model_copy(update={"stage": target, "created_at": datetime.now(model.created_at.tzinfo)})
+        return model.model_copy(update={"stage": target})
