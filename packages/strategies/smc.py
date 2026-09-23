@@ -9,7 +9,8 @@ from contracts.smc import (
     LiquiditySweep,
     OrderBlock,
     SMCAnalysis,
-    StructureBreak,\n    StructureBreakKind,
+    StructureBreak,
+    StructureBreakKind,
     StructureKind,
     SwingPoint,
 )
