@@ -20,6 +20,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: test -s supabase/migrations/0001_mitros_foundation.sql
+  configuration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject tracked credential material
+        run: |
+          if grep -RInE '(^|[ =])(sk-[A-Za-z0-9]|ghp_[A-Za-z0-9]|xox[baprs]-[A-Za-z0-9]|AKIA[0-9A-Z]{16})' --exclude-dir=.git .; then
+            echo "Potential credential material found in tracked repository content"
+            exit 1
+          fi
+      - name: Require deployment contract files
+        run: |
+          test -s .env.example
+          test -s docs/architecture/deployment-configuration.md
   governance:
     runs-on: ubuntu-latest
     steps:
