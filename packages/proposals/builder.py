@@ -79,5 +79,5 @@ class TradeProposalBuilder:
             data_quality=data_quality,
             evidence=evidence,
             risk=risk_record,
-            provenance=tuple(),
+            provenance=(),
         )
