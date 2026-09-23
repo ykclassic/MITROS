@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import datetime
 from decimal import Decimal
 from hashlib import sha256
 from uuid import uuid4
@@ -17,7 +18,7 @@ class DeterministicModel:
         self.weights = dict(weights)
         self.feature_set_version = feature_set_version
 
-    def predict(self, features: Mapping[str, Decimal], as_of, provenance: tuple[str, ...] = ()) -> ModelPrediction:
+    def predict(self, features: Mapping[str, Decimal], as_of: datetime, provenance: tuple[str, ...] = ()) -> ModelPrediction:
         if set(features) != set(self.weights):
             raise ValueError("feature schema mismatch")
         score = sum((features[name] * self.weights[name] for name in self.weights), Decimal("0"))
