@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from hashlib import sha256
+from itertools import pairwise
 from packages.market_data.contracts import Candle, DataQuality
 
 def validate_dataset(candles: Sequence[Candle]) -> tuple[Candle, ...]:
@@ -11,7 +12,7 @@ def validate_dataset(candles: Sequence[Candle]) -> tuple[Candle, ...]:
         raise ValueError("research dataset requires VERIFIED candles")
     if any(c.asset != first.asset or c.venue != first.venue or c.timeframe != first.timeframe for c in ordered):
         raise ValueError("dataset must contain one asset, venue and timeframe")
-    if any(b.open_time <= a.open_time for a, b in zip(ordered, ordered[1:])):
+    if any(b.open_time <= a.open_time for a, b in pairwise(ordered)):
         raise ValueError("dataset timestamps must be strictly increasing")
     if any(c.close_time <= c.open_time for c in ordered):
         raise ValueError("candle close_time must follow open_time")
