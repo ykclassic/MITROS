@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from contracts.approval import ApprovalOutcome
-from contracts.domain import Direction, StrategyVote, TradeProposal
+from contracts.domain import ApprovalStatus, Direction, StrategyVote, TradeProposal
 from contracts.risk import RiskAssessment
 from contracts.signal import SignalRecord
 from packages.approval.manager import HumanApprovalManager
@@ -47,7 +47,7 @@ def test_only_approved_token_reaches_gateway() -> None:
         gateway, approval_digest=approval_token_digest(outcome.approval.approval_token or ""),
     )
     result = boundary.submit(p.model_copy(update={
-        "approval_status": "APPROVED",
+        "approval_status": ApprovalStatus.APPROVED,
     }), outcome.approval.approval_token or "")
     assert result.status == "FILLED"
     assert result.filled_quantity == Decimal("1")
