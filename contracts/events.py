@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Mapping
 from enum import StrEnum
 from uuid import UUID,uuid4
 from pydantic import BaseModel,ConfigDict,Field
@@ -12,4 +13,5 @@ class EventEnvelope(BaseModel):
     model_config=ConfigDict(frozen=True)
     id:UUID=Field(default_factory=uuid4); event_type:EventType; aggregate_id:UUID; occurred_at:datetime; recorded_at:datetime
     producer:str; producer_version:str; correlation_id:UUID; causation_id:UUID|None=None; schema_version:int=1
-    payload:dict[str, object]; provenance:list[dict[str, object]]
+    payload: Mapping[str, object]
+    provenance: list[Mapping[str, object]]
