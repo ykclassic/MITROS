@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from datetime import datetime
+from decimal import Decimal
 from hashlib import sha256
 from threading import RLock
 from uuid import UUID
