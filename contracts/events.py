@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Mapping
+from collections.abc import Mapping
 from enum import StrEnum
 from uuid import UUID,uuid4
 from pydantic import BaseModel,ConfigDict,Field
