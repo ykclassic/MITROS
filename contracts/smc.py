@@ -25,7 +25,7 @@ class SwingPoint(BaseModel):
     occurred_at: datetime
     strength: int = Field(ge=1)
 
-class StructureEvent(BaseModel):
+class StructureBreak(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: StructureBreakKind
     direction: DirectionBias
@@ -58,7 +58,7 @@ class SMCAnalysis(BaseModel):
     model_config = ConfigDict(frozen=True)
     bias: DirectionBias
     swings: tuple[SwingPoint, ...]
-    structure_events: tuple[StructureEvent, ...]
+    structure_events: tuple[StructureBreak, ...]
     liquidity_sweeps: tuple[LiquiditySweep, ...]
     fair_value_gaps: tuple[FairValueGap, ...]
     order_blocks: tuple[OrderBlock, ...]
