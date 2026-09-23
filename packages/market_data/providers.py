@@ -14,7 +14,7 @@ class TwelveDataProvider(HTTPProviderBase):
         data=await self._get("/time_series",{"symbol":mapping.provider_symbol,"interval":request.timeframe or "1h","outputsize":request.limit,"apikey":self.api_key})
         values=data.get("values",[])
         meta=data.get("meta",{})
-        observed=datetime.fromisoformat(str(meta.get("last_refresh",values[0]["datetime"])).replace("Z","+00:00"))
+        observed=datetime.fromisoformat(str(meta.get("last_refresh",values[0]["datetime"])))
         return [Candle(asset=request.asset,venue=request.venue,timeframe=request.timeframe or "1h",
             open_time=datetime.fromisoformat(str(x["datetime"]).replace("Z","+00:00")),
             close_time=datetime.fromisoformat(str(x["datetime"]).replace("Z","+00:00")),
@@ -23,7 +23,7 @@ class TwelveDataProvider(HTTPProviderBase):
             observed_at=observed,received_at=datetime.now(UTC)) for x in values]
     async def quote(self,request:MarketDataRequest)->Quote:
         m=self.symbols.resolve(self.id,request.asset); d=await self._get("/quote",{"symbol":m.provider_symbol,"apikey":self.api_key})
-        observed=datetime.fromisoformat(str(d["datetime"]).replace("Z","+00:00")) if d.get("datetime") else datetime.now(UTC)
+        observed=datetime.fromisoformat(str(d["datetime"])) if d.get("datetime") else datetime.now(UTC)
         return Quote(asset=request.asset,venue=request.venue,last=Decimal(str(d["close"])),provider=self.id,provider_version=self.version,observed_at=observed,received_at=datetime.now(UTC))
     async def health(self)->ProviderHealth:
         try: await self._get("/quote",{"symbol":"BTC/USD","apikey":self.api_key}); return ProviderHealth(provider=self.id,available=True,checked_at=datetime.now(UTC))
@@ -68,7 +68,7 @@ class AlphaVantageProvider(HTTPProviderBase):
         params={"function":function,"symbol":m.provider_symbol,"interval":"60min" if interval=="1h" else interval,"outputsize":"full","apikey":self.api_key}
         if function=="CRYPTO_INTRADAY": params["market"]="USD"
         data=await self._get("/query",params)
-        key=next((k for k in data if k.startswith("Time Series Crypto") or k.startswith("Time Series (" )),None)
+        key=next((k for k in data if k.startswith(("Time Series Crypto","Time Series ("))),None)
         if key is None: raise RuntimeError(f"Alpha Vantage returned no time-series payload: {data.get('Note') or data.get('Error Message')}")
         rows=data[key]
         items=list(rows.items())[:request.limit]
