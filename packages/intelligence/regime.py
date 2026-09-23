@@ -37,10 +37,10 @@ class RegimeDetector:
 
         if volatility >= self.high_volatility_threshold:
             regime = MarketRegime.HIGH_VOLATILITY
-        elif volatility <= self.low_volatility_threshold:
-            regime = MarketRegime.LOW_VOLATILITY
         elif abs(net_return) >= self.trend_threshold:
             regime = MarketRegime.TREND_UP if net_return > 0 else MarketRegime.TREND_DOWN
+        elif volatility <= self.low_volatility_threshold:
+            regime = MarketRegime.LOW_VOLATILITY
         else:
             regime = MarketRegime.RANGE
 
