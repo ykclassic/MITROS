@@ -1,16 +1,12 @@
 from collections.abc import Sequence
 from decimal import Decimal
 from itertools import pairwise
-from typing import TYPE_CHECKING
-
+from contracts.features import FeatureSnapshot
 from contracts.domain import Provenance
 from packages.market_data.contracts import Candle, DataQuality
 
 from .contracts import FeatureEngineConfig, FeatureSet
 from .indicators import atr, bollinger, ema, macd, percentage_return, rsi, sma
-
-if TYPE_CHECKING:
-    from contracts.features import FeatureSnapshot
 
 DEFAULT_FEATURE_SET = FeatureSet(
     key="technical_core",
@@ -69,7 +65,6 @@ class FeatureEngine:
         return {name: value for name in cfg.feature_set.indicators if (value := features[name]) is not None}
 
     def snapshot(self, candles: Sequence[Candle]) -> FeatureSnapshot:
-        from contracts.features import FeatureSnapshot
         ordered = self._validate(candles)
         latest = ordered[-1]
         return FeatureSnapshot(
