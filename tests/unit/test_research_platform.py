@@ -23,13 +23,15 @@ def test_register_artifact_preserves_provenance() -> None:
     assert artifact.metadata["dataset"] == "dataset-sha"
 
 def test_report_is_immutable_and_validates_window() -> None:
-    report = ResearchPlatform().report(
+    platform = ResearchPlatform()
+    base_query = query()
+    report = platform.report(
         query(), metrics=(ResearchMetric(name="win_rate", value=Decimal("0.5"), sample_size=10),),
         findings=("deterministic",), generated_at=NOW,
     )
     assert report.metrics[0].value == Decimal("0.5")
     with pytest.raises(ValueError):
-        ResearchPlatform().report(query.model_copy(update={"start": query().end}), generated_at=NOW)
+        platform.report(base_query.model_copy(update={"start": base_query.end}), generated_at=NOW)
 
 def test_compare_metrics_is_deterministic() -> None:
     platform = ResearchPlatform()
