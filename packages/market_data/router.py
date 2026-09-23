@@ -1,7 +1,8 @@
 from .contracts import MarketDataRequest,Quote,ProviderHealth
+from .interface import MarketDataProvider
 
 class ProviderRouter:
-    def __init__(self,providers:list[object])->None:
+    def __init__(self,providers:list[MarketDataProvider])->None:
         if not providers: raise ValueError("At least one provider is required")
         self.providers=tuple(providers)
     async def quote(self,request:MarketDataRequest)->Quote:
