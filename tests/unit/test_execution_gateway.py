@@ -9,7 +9,6 @@ from contracts.risk import RiskAssessment
 from contracts.signal import SignalRecord
 from packages.approval.manager import HumanApprovalManager
 from packages.execution.gateway import ProposalExecutionGateway
-from packages.execution.interface import ExecutionSide
 from packages.execution.paper import PaperExecutionGateway
 from packages.execution.security import approval_token_digest
 from packages.proposals.builder import TradeProposalBuilder
