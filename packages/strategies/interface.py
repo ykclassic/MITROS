@@ -1,5 +1,6 @@
 from abc import ABC,abstractmethod
-from contracts.domain import StrategyVote,SignalContext
+from contracts.context import SignalContext
+from contracts.domain import StrategyVote
 class StrategyPlugin(ABC):
     id:str; version:str
     @abstractmethod
