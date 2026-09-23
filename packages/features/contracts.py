@@ -1,6 +1,6 @@
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Callable, Sequence
 
 IndicatorResult = Decimal | None
 IndicatorFunction = Callable[[Sequence[Decimal]], IndicatorResult]
