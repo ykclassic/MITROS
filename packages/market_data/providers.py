@@ -62,7 +62,7 @@ class AlphaVantageProvider(HTTPProviderBase):
         super().__init__(api_key=api_key,base_url="https://www.alphavantage.co",client=client); self.symbols=symbols
     async def candles(self,request:MarketDataRequest)->list[Candle]:
         m=self.symbols.resolve(self.id,request.asset)
-        interval=request.timeframe or "1h"
+        interval={"1h":"60min"}.get(request.timeframe or "1h",request.timeframe or "1h")
         if interval not in {"1m","5m","15m","30m","60min"}: raise ValueError(f"Unsupported Alpha Vantage timeframe: {interval}")
         function="CRYPTO_INTRADAY" if "/" in request.asset else "TIME_SERIES_INTRADAY"
         params={"function":function,"symbol":m.provider_symbol,"interval":"60min" if interval=="1h" else interval,"outputsize":"full","apikey":self.api_key}
