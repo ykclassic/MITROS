@@ -1,0 +1,1 @@
+"""Canonical MITROS domain contracts."""
