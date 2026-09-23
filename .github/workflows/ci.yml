@@ -1,0 +1,33 @@
+name: MITROS CI
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "phase/**"]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: mypy contracts packages
+      - run: pytest
+  sql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: test -s supabase/migrations/0001_mitros_foundation.sql
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require phase branch for PRs to main
+        if: github.event_name == 'pull_request'
+        run: |
+          case "$GITHUB_HEAD_REF" in
+            phase/*) ;;
+            *) echo "PR must originate from phase/*"; exit 1;;
+          esac
