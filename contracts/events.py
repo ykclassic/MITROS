@@ -12,4 +12,4 @@ class EventEnvelope(BaseModel):
     model_config=ConfigDict(frozen=True)
     id:UUID=Field(default_factory=uuid4); event_type:EventType; aggregate_id:UUID; occurred_at:datetime; recorded_at:datetime
     producer:str; producer_version:str; correlation_id:UUID; causation_id:UUID|None=None; schema_version:int=1
-    payload:dict; provenance:list[dict]
+    payload:dict[str, object]; provenance:list[dict[str, object]]
