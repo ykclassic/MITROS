@@ -1,8 +1,18 @@
 from collections.abc import Sequence
 from decimal import Decimal
+from itertools import pairwise
 
 from contracts.domain import Direction, StrategyVote
-from contracts.smc import DirectionBias, FairValueGap, LiquiditySweep, OrderBlock, SMCAnalysis, StructureBreak, StructureKind, SwingPoint
+from contracts.smc import (
+    DirectionBias,
+    FairValueGap,
+    LiquiditySweep,
+    OrderBlock,
+    SMCAnalysis,
+    StructureBreak,
+    StructureKind,
+    SwingPoint,
+)
 from packages.market_data.contracts import Candle, DataQuality
 from .base import StrategyContext, StrategyPlugin
 
@@ -46,8 +56,16 @@ class SMCStrategy(StrategyPlugin):
             direction = Direction.SHORT
         if direction is not None and confidence < self.minimum_confidence:
             direction = None
-        reasons = analysis.reasons if direction is not None else analysis.reasons + ("confluence below minimum threshold",) if analysis.bias is not DirectionBias.NEUTRAL else analysis.reasons
-        return StrategyVote(strategy_id=self.strategy_id, strategy_version=self.strategy_version, direction=direction, confidence=confidence, reasons=reasons)
+        reasons = analysis.reasons
+        if direction is None and analysis.bias is not DirectionBias.NEUTRAL:
+            reasons = reasons + ("confluence below minimum threshold",)
+        return StrategyVote(
+            strategy_id=self.strategy_id,
+            strategy_version=self.strategy_version,
+            direction=direction,
+            confidence=confidence,
+            reasons=reasons,
+        )
 
     @staticmethod
     def _validate(candles: Sequence[Candle]) -> list[Candle]:
@@ -56,7 +74,7 @@ class SMCStrategy(StrategyPlugin):
         ordered = sorted(candles, key=lambda candle: candle.open_time)
         if any(c.quality is not DataQuality.VERIFIED for c in ordered):
             raise ValueError("SMC strategy requires VERIFIED candles")
-        if any(current.open_time <= previous.open_time for previous, current in zip(ordered, ordered[1:])):
+        if any(current.open_time <= previous.open_time for previous, current in pairwise(ordered)):
             raise ValueError("Duplicate or non-increasing candle timestamps")
         first = ordered[0]
         if any(c.asset != first.asset or c.venue != first.venue or c.timeframe != first.timeframe for c in ordered):
@@ -80,15 +98,22 @@ class SMCStrategy(StrategyPlugin):
         candidates: list[StructureBreak] = []
         for swing in swings:
             direction = DirectionBias.BULLISH if swing.kind is StructureKind.HIGH else DirectionBias.BEARISH
-            predicate = (lambda candle, price=swing.price: candle.close > price) if direction is DirectionBias.BULLISH else (lambda candle, price=swing.price: candle.close < price)
-            confirmations = [i for i in range(swing.index + 1, len(candles)) if predicate(candles[i])]
+            if direction is DirectionBias.BULLISH:
+                confirmations = [i for i in range(swing.index + 1, len(candles)) if candles[i].close > swing.price]
+            else:
+                confirmations = [i for i in range(swing.index + 1, len(candles)) if candles[i].close < swing.price]
             if confirmations:
-                candidates.append(StructureBreak(kind=StructureBreak.BOS, direction=direction, broken_price=swing.price, swing_index=swing.index, confirmation_index=confirmations[0]))
+                candidates.append(StructureBreak(
+                    kind=StructureBreak.BOS,
+                    direction=direction,
+                    broken_price=swing.price,
+                    swing_index=swing.index,
+                    confirmation_index=confirmations[0],
+                ))
         candidates.sort(key=lambda event: event.confirmation_index)
-        if candidates and len(candidates) > 1:
-            for i in range(1, len(candidates)):
-                if candidates[i].direction is not candidates[i - 1].direction:
-                    candidates[i] = candidates[i].model_copy(update={"kind": StructureBreak.CHOCH})
+        for i in range(1, len(candidates)):
+            if candidates[i].direction is not candidates[i - 1].direction:
+                candidates[i] = candidates[i].model_copy(update={"kind": StructureBreak.CHOCH})
         return candidates[-6:]
 
     @staticmethod
@@ -133,23 +158,37 @@ class SMCStrategy(StrategyPlugin):
     @staticmethod
     def _bias(events: Sequence[StructureBreak], sweeps: Sequence[LiquiditySweep], gaps: Sequence[FairValueGap], blocks: Sequence[OrderBlock]) -> DirectionBias:
         scores = {DirectionBias.BULLISH: 0, DirectionBias.BEARISH: 0}
-        for item in events[-2:]: scores[item.direction] += 3 if item.kind is StructureBreak.CHOCH else 2
-        for item in sweeps[-2:]: scores[item.direction] += 2
-        for item in gaps[-2:]: scores[item.direction] += 1
-        for item in blocks[-2:]: scores[item.direction] += 1
-        if scores[DirectionBias.BULLISH] == scores[DirectionBias.BEARISH]: return DirectionBias.NEUTRAL
+        for item in events[-2:]:
+            scores[item.direction] += 3 if item.kind is StructureBreak.CHOCH else 2
+        for item in sweeps[-2:]:
+            scores[item.direction] += 2
+        for item in gaps[-2:]:
+            scores[item.direction] += 1
+        for item in blocks[-2:]:
+            scores[item.direction] += 1
+        if scores[DirectionBias.BULLISH] == scores[DirectionBias.BEARISH]:
+            return DirectionBias.NEUTRAL
         return DirectionBias.BULLISH if scores[DirectionBias.BULLISH] > scores[DirectionBias.BEARISH] else DirectionBias.BEARISH
 
     @staticmethod
     def _confidence(analysis: SMCAnalysis) -> Decimal:
-        components = sum((bool(analysis.structure_events), bool(analysis.liquidity_sweeps), bool(analysis.fair_value_gaps), bool(analysis.order_blocks)))
+        components = sum((
+            bool(analysis.structure_events),
+            bool(analysis.liquidity_sweeps),
+            bool(analysis.fair_value_gaps),
+            bool(analysis.order_blocks),
+        ))
         return min(Decimal("1"), Decimal(components) / Decimal("4"))
 
     @staticmethod
     def _reasons(bias: DirectionBias, events: Sequence[StructureBreak], sweeps: Sequence[LiquiditySweep], gaps: Sequence[FairValueGap], blocks: Sequence[OrderBlock]) -> list[str]:
         reasons = [f"SMC bias={bias.value}"]
-        if events: reasons.append(f"structure={events[-1].kind.value}:{events[-1].direction.value}")
-        if sweeps: reasons.append(f"liquidity_sweep={sweeps[-1].direction.value}")
-        if gaps: reasons.append(f"fair_value_gap={gaps[-1].direction.value}")
-        if blocks: reasons.append(f"order_block={blocks[-1].direction.value}")
+        if events:
+            reasons.append(f"structure={events[-1].kind.value}:{events[-1].direction.value}")
+        if sweeps:
+            reasons.append(f"liquidity_sweep={sweeps[-1].direction.value}")
+        if gaps:
+            reasons.append(f"fair_value_gap={gaps[-1].direction.value}")
+        if blocks:
+            reasons.append(f"order_block={blocks[-1].direction.value}")
         return reasons
