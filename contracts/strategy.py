@@ -1,6 +1,4 @@
 from collections.abc import Sequence
-from datetime import datetime
-from decimal import Decimal
 from typing import Protocol
 
 from contracts.domain import StrategyVote
