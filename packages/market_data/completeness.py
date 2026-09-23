@@ -1,7 +1,7 @@
-from datetime import timedelta
+from datetime import datetime,timedelta
 from .contracts import Candle
 
-def filter_completed_candles(candles:list[Candle],now,interval:timedelta)->list[Candle]:
+def filter_completed_candles(candles:list[Candle],now:datetime,interval:timedelta)->list[Candle]:
     return [c for c in candles if c.close_time+interval<=now]
 
 def validate_ohlcv(candle:Candle)->None:
