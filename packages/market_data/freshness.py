@@ -1,4 +1,4 @@
-from datetime import datetime,timedelta,timezone
+from datetime import datetime,timezone
 from .contracts import Candle,DataQuality
 
 def assess_freshness(candle:Candle,max_age_seconds:int,now:datetime|None=None)->Candle:
