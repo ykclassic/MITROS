@@ -1,9 +1,8 @@
 from collections.abc import Sequence
+from datetime import datetime
 from decimal import Decimal
 
 from contracts.ml import DriftReport, DriftStatus
-
-
 class DriftDetector:
     def __init__(self, warning_threshold: Decimal = Decimal("0.10"), breach_threshold: Decimal = Decimal("0.25")) -> None:
         if not Decimal("0") < warning_threshold < breach_threshold:
@@ -12,7 +11,7 @@ class DriftDetector:
         self.breach_threshold = breach_threshold
 
     def compare(self, model_id: str, model_version: str, feature_name: str,
-                baseline: Sequence[Decimal], current: Sequence[Decimal], evaluated_at) -> DriftReport:
+                baseline: Sequence[Decimal], current: Sequence[Decimal], evaluated_at: datetime) -> DriftReport:
         if not baseline or not current:
             raise ValueError("drift comparison requires non-empty samples")
         baseline_mean = sum(baseline, Decimal("0")) / Decimal(len(baseline))
