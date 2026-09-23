@@ -3,7 +3,7 @@ create extension if not exists pgcrypto;
 create table if not exists assets(id uuid primary key default gen_random_uuid(),symbol text not null,asset_class text not null,canonical_symbol text not null,active boolean not null default true,created_at timestamptz not null default now(),unique(asset_class,canonical_symbol));
 create table if not exists venues(id uuid primary key default gen_random_uuid(),name text not null unique,venue_type text not null,active boolean not null default true,created_at timestamptz not null default now());
 
-create table if not exists market_data(id uuid primary key default gen_random_uuid(),asset_id uuid not null references assets(id),venue_id uuid not null references venues(id),timeframe text not null,observed_at timestamptz not null,received_at timestamptz not null,values jsonb not null,provenance jsonb not null);
+create table if not exists market_data(id uuid primary key default gen_random_uuid(),asset_id uuid not null references assets(id),venue_id uuid not null references venues(id),timeframe text not null,observed_at timestamptz not null,received_at timestamptz not null,values jsonb not null,provenance jsonb not null,data_quality text not null default 'VERIFIED',unique(asset_id,venue_id,timeframe,observed_at));
 create table if not exists candles(id uuid primary key default gen_random_uuid(),asset_id uuid not null references assets(id),venue_id uuid not null references venues(id),timeframe text not null,open_time timestamptz not null,close_time timestamptz not null,open numeric not null,high numeric not null,low numeric not null,close numeric not null,volume numeric,provenance jsonb not null,unique(asset_id,venue_id,timeframe,open_time));
 
 create table if not exists features(id uuid primary key default gen_random_uuid(),asset_id uuid not null references assets(id),venue_id uuid not null references venues(id),timeframe text not null,as_of timestamptz not null,feature_set_version text not null,values jsonb not null,provenance jsonb not null);
@@ -45,6 +45,7 @@ create index if not exists idx_events_aggregate on system_events(aggregate_id,oc
 create index if not exists idx_events_type on system_events(event_type,occurred_at);
 create index if not exists idx_proposals_status on trade_proposals(approval_status,execution_status);
 create index if not exists idx_candles_lookup on candles(asset_id,venue_id,timeframe,open_time desc);
+create index if not exists idx_market_data_lookup on market_data(asset_id,venue_id,timeframe,observed_at desc);
 create index if not exists idx_research_queries_created on research_queries(created_at desc);
 
 -- Baseline RLS is enabled now; policies are added with authenticated application ownership in the Auth integration phase.
