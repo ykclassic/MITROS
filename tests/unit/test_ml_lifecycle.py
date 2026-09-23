@@ -1,7 +1,5 @@
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
-
 import pytest
 
 from contracts.ml import DriftStatus, ModelLifecycleStage, ModelVersion, ValidationResult
@@ -75,4 +73,5 @@ def test_lifecycle_can_progress_only_in_order():
 def test_prediction_has_unique_identity():
     engine = DeterministicModel("baseline", "1.0.0", {"x": Decimal("1")}, "features@1.0.0")
     a = engine.predict({"x": Decimal("0")}, NOW)
-    assert a.prediction_id == uuid4() or a.prediction_id != a.prediction_id
+    b = engine.predict({"x": Decimal("0")}, NOW)
+    assert a.prediction_id != b.prediction_id
