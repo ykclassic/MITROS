@@ -37,7 +37,7 @@ def candles(count: int = 60, *, quality: DataQuality = DataQuality.VERIFIED) -> 
 def test_sma_ema_are_deterministic():
     values = [Decimal("1"), Decimal("2"), Decimal("3"), Decimal("4")]
     assert sma(values, 3) == Decimal("3")
-    assert ema(values, 3) == Decimal("3.25")
+    assert ema(values, 3) == Decimal("3.0")
 
 def test_rsi_is_bounded_and_atr_is_positive():
     data = candles()
