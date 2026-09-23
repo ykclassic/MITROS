@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from hashlib import sha256
+import json
 from packages.features.engine import FeatureEngine
 from packages.strategies.base import StrategyContext, StrategyPlugin
 from contracts.backtest import ReplayFrame, ReplayResult
@@ -18,7 +19,8 @@ class ReplayEngine:
             history = data[: i + 1]
             features = self.feature_engine.snapshot(history)
             vote = strategy.evaluate(StrategyContext(candles=history, features=features))
-            feature_checksum = sha256(features.model_dump_json(sort_keys=True).encode()).hexdigest()
+            payload = json.dumps(features.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+            feature_checksum = sha256(payload.encode()).hexdigest()
             frames.append(ReplayFrame(
                 index=i, as_of=data[i].close_time, candles_seen=i + 1,
                 feature_checksum=feature_checksum,
