@@ -56,7 +56,7 @@ def test_crt_bearish_sweep_reclaims_reference_high():
 
 
 def test_crt_neutral_without_reclaim():
-    candles = [candle(0, "100", "105", "95", "101"), candle(1, "101", "107", "94", "106")]
+    candles = [candle(0, "100", "105", "95", "101"), candle(1, "101", "104", "96", "102")]
     analysis = CRTStrategy().analyze(candles)
     assert analysis.direction is CRTDirection.NEUTRAL
     assert analysis.sweep is None
