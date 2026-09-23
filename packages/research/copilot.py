@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from datetime import datetime
 
-from contracts.copilot import ResearchAnswer, ResearchEvidence, ResearchEvidence as Evidence, EvidenceKind
+from contracts.copilot import ResearchAnswer, ResearchEvidence
 from contracts.research import ResearchQuery
 
 
