@@ -8,7 +8,7 @@ class StructureKind(StrEnum):
     HIGH = "HIGH"
     LOW = "LOW"
 
-class StructureBreak(StrEnum):
+class StructureBreakKind(StrEnum):
     BOS = "BOS"
     CHOCH = "CHOCH"
 
@@ -27,7 +27,7 @@ class SwingPoint(BaseModel):
 
 class StructureEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
-    kind: StructureBreak
+    kind: StructureBreakKind
     direction: DirectionBias
     broken_price: Decimal = Field(gt=0)
     swing_index: int = Field(ge=0)
