@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from decimal import Decimal
+from itertools import pairwise
 
 from contracts.regime import MarketRegime, RegimeSnapshot
 from packages.market_data.contracts import Candle, DataQuality
@@ -28,7 +29,7 @@ class RegimeDetector:
 
     def classify(self, candles: Sequence[Candle]) -> RegimeSnapshot:
         ordered = self._validate(candles)
-        returns = [(c.close / p.close) - Decimal("1") for p, c in zip(ordered, ordered[1:])]
+        returns = [(c.close / p.close) - Decimal("1") for p, c in pairwise(ordered)]
         mean = sum(returns, Decimal("0")) / Decimal(len(returns))
         volatility = self._stddev(returns)
         net_return = (ordered[-1].close / ordered[0].close) - Decimal("1")
