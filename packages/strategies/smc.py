@@ -9,7 +9,7 @@ from contracts.smc import (
     LiquiditySweep,
     OrderBlock,
     SMCAnalysis,
-    StructureBreak,
+    StructureBreak,\n    StructureBreakKind,
     StructureKind,
     SwingPoint,
 )
@@ -104,7 +104,7 @@ class SMCStrategy(StrategyPlugin):
                 confirmations = [i for i in range(swing.index + 1, len(candles)) if candles[i].close < swing.price]
             if confirmations:
                 candidates.append(StructureBreak(
-                    kind=StructureBreak.BOS,
+                    kind=StructureBreakKind.BOS,
                     direction=direction,
                     broken_price=swing.price,
                     swing_index=swing.index,
@@ -159,7 +159,7 @@ class SMCStrategy(StrategyPlugin):
     def _bias(events: Sequence[StructureBreak], sweeps: Sequence[LiquiditySweep], gaps: Sequence[FairValueGap], blocks: Sequence[OrderBlock]) -> DirectionBias:
         scores = {DirectionBias.BULLISH: 0, DirectionBias.BEARISH: 0}
         for item in events[-2:]:
-            scores[item.direction] += 3 if item.kind is StructureBreak.CHOCH else 2
+            scores[item.direction] += 3 if item.kind is StructureBreakKind.CHOCH else 2
         for item in sweeps[-2:]:
             scores[item.direction] += 2
         for item in gaps[-2:]:
