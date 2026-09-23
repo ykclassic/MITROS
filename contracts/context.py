@@ -1,6 +1,6 @@
 from decimal import Decimal
-from contracts.domain import MarketDataSnapshot
 from pydantic import BaseModel,ConfigDict
+from contracts.market import MarketDataSnapshot
 class SignalContext(BaseModel):
     model_config=ConfigDict(frozen=True)
     market:MarketDataSnapshot
