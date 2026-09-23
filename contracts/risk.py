@@ -48,6 +48,7 @@ class RiskLimits(BaseModel):
     max_drawdown_fraction: Decimal = Field(gt=0, le=1)
     max_concentration_fraction: Decimal = Field(gt=0, le=1)
     max_leverage: Decimal = Field(gt=0)
+    max_spread_fraction: Decimal = Field(gt=0, le=1)
 
 
 class RiskAssessment(BaseModel):
@@ -58,7 +59,3 @@ class RiskAssessment(BaseModel):
     checks: tuple[RiskCheck, ...]
     reasons: tuple[str, ...]
     risk_score: Decimal = Field(ge=0, le=1)
-
-
-class RiskEngine:
-    pass
