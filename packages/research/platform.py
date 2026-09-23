@@ -1,10 +1,12 @@
 from collections.abc import Sequence
+from typing import Final
 from datetime import datetime
 
 from contracts.research import ResearchArtifact, ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
 
 
 class ResearchPlatform:
+    _EMPTY_METADATA: Final[dict[str, str]] = {}
     """Deterministic research orchestration over verified MITROS research engines."""
 
     def register_artifact(
@@ -23,7 +25,7 @@ class ResearchPlatform:
             version=version,
             checksum=checksum,
             created_at=created_at,
-            metadata=metadata or {},
+            metadata=metadata if metadata is not None else self._EMPTY_METADATA,
         )
 
     def report(
