@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import pytest
 
-from contracts.domain import Direction
+from contracts.domain import Direction\nfrom contracts.features import FeatureSnapshot\nfrom contracts.domain import Provenance
 from packages.market_data.contracts import Candle, DataQuality
 from packages.strategies.smc import SMCStrategy
 from packages.strategies.base import StrategyContext
@@ -27,7 +27,7 @@ def test_smc_fails_closed_on_bad_data():
 def test_smc_vote_contract_is_deterministic():
     candles = [candle(i, str(100+i), str(102+i), str(99+i), str(101+i)) for i in range(12)]
     analysis = SMCStrategy().analyze(candles)
-    vote = SMCStrategy().evaluate(StrategyContext(candles=candles, features=None))
+    now = candles[-1].close_time\n    features = FeatureSnapshot(asset="BTC/USD", venue="spot", timeframe="1h", as_of=now, feature_set_version="1.0.0", values={"sma_20": Decimal("100")}, required_history=50, provenance=(Provenance(source="test", observed_at=now, received_at=now),))\n    vote = SMCStrategy().evaluate(StrategyContext(candles=candles, features=features))
     assert vote.strategy_id == "smc"
     assert vote.strategy_version == "1.0.0"
     assert Decimal("0") <= vote.confidence <= Decimal("1")
