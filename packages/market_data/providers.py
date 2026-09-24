@@ -3,9 +3,10 @@ from decimal import Decimal
 import httpx
 from .contracts import Candle,MarketDataRequest,ProviderHealth,Quote
 from .http import HTTPProviderBase,utc_from_epoch
+from .interface import MarketDataProvider
 from .symbols import SymbolMapper
 
-class TwelveDataProvider(HTTPProviderBase):
+class TwelveDataProvider(HTTPProviderBase, MarketDataProvider):
     id="twelvedata"; version="v1"
     def __init__(self,*,api_key:str,symbols:SymbolMapper,client:httpx.AsyncClient|None=None)->None:
         super().__init__(api_key=api_key,base_url="https://api.twelvedata.com",client=client); self.symbols=symbols
@@ -29,7 +30,7 @@ class TwelveDataProvider(HTTPProviderBase):
         try: await self._get("/quote",{"symbol":"BTC/USD","apikey":self.api_key}); return ProviderHealth(provider=self.id,available=True,checked_at=datetime.now(UTC))
         except Exception as exc: return ProviderHealth(provider=self.id,available=False,checked_at=datetime.now(UTC),error=str(exc))
 
-class FinnhubProvider(HTTPProviderBase):
+class FinnhubProvider(HTTPProviderBase, MarketDataProvider):
     id="finnhub"; version="v1"
     def __init__(self,*,api_key:str,symbols:SymbolMapper,client:httpx.AsyncClient|None=None)->None:
         super().__init__(api_key=api_key,base_url="https://finnhub.io/api",client=client); self.symbols=symbols
@@ -56,7 +57,7 @@ class FinnhubProvider(HTTPProviderBase):
         try: await self.quote(MarketDataRequest(asset="BTC/USD",venue="spot")); return ProviderHealth(provider=self.id,available=True,checked_at=datetime.now(UTC))
         except Exception as exc: return ProviderHealth(provider=self.id,available=False,checked_at=datetime.now(UTC),error=str(exc))
 
-class AlphaVantageProvider(HTTPProviderBase):
+class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
     id="alphavantage"; version="v1"
     def __init__(self,*,api_key:str,symbols:SymbolMapper,client:httpx.AsyncClient|None=None)->None:
         super().__init__(api_key=api_key,base_url="https://www.alphavantage.co",client=client); self.symbols=symbols
