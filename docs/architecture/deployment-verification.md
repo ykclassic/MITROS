@@ -15,7 +15,7 @@ The production E2E suite in `tests/deployment/test_production_deployment.py` ver
 2. Render health is reachable.
 3. Render CORS explicitly permits the production Vercel origin.
 4. CORS preflight for the quote endpoint succeeds.
-5. All three configured providers (Twelve Data, Finnhub, Alpha Vantage) are present and runtime-healthy.
+5. All three configured providers (Twelve Data, Finnhub, Alpha Vantage) are present at runtime without exposing whether the credential value itself is secret. Provider availability is recorded by the same endpoint; transient provider-side rate limits do not make credential configuration appear missing.
 6. BTC/USD and ETH/USD return a positive price, provider provenance, provider quote timestamp, receipt timestamp, and `VERIFIED` quality.
 7. The Vercel HTML does not expose provider credential variable names or common credential material.
 8. The production URL contract remains explicit, so a deployment URL change forces a test update.
