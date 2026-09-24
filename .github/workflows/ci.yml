@@ -42,6 +42,7 @@ jobs:
           MITROS_PRODUCTION_API_URL: https://mitros.onrender.com
           MITROS_PRODUCTION_WEB_URL: https://mitros.vercel.app
           MITROS_PRODUCTION_VERCEL_ORIGIN: https://mitros.vercel.app
+          MITROS_RUN_DEPLOYMENT_E2E: "true"
         run: python -m pytest -q tests/deployment/test_production_deployment.py
   sql:
     runs-on: ubuntu-latest
