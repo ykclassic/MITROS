@@ -40,12 +40,12 @@ def test_live_mode_requires_explicit_enablement_and_acknowledgement() -> None:
     assert config.live_trading_acknowledged
 
 
-def test_market_provider_keys_use_backend_namespace() -> None:
-    settings = MarketDataSettings(
-        MITROS_MARKET_TWELVEDATA_API_KEY="td",
-        MITROS_MARKET_FINNHUB_API_KEY="fh",
-        MITROS_MARKET_ALPHAVANTAGE_API_KEY="av",
-    )
+def test_market_provider_keys_use_backend_namespace(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MITROS_MARKET_TWELVEDATA_API_KEY", "td")
+    monkeypatch.setenv("MITROS_MARKET_FINNHUB_API_KEY", "fh")
+    monkeypatch.setenv("MITROS_MARKET_ALPHAVANTAGE_API_KEY", "av")
+
+    settings = MarketDataSettings()
     assert settings.twelvedata_api_key == "td"
     assert settings.finnhub_api_key == "fh"
     assert settings.alphavantage_api_key == "av"
