@@ -107,8 +107,8 @@ def test_production_quote(asset: str) -> None:
     assert body["provider"] in EXPECTED_PROVIDERS
     assert Decimal(body["price"]) > 0
     assert body["quality"] == "VERIFIED"
-    datetime.fromisoformat(body["observed_at"].replace("Z", "+00:00"))
-    datetime.fromisoformat(body["received_at"].replace("Z", "+00:00"))
+    datetime.fromisoformat(body["observed_at"])
+    datetime.fromisoformat(body["received_at"])
 
 
 def test_production_web_does_not_expose_provider_credentials() -> None:
