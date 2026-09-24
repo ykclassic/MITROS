@@ -183,7 +183,7 @@ async def build_intelligence(asset: str, venue: str, timeframe: str) -> Intellig
         venue=venue,
         timeframe=timeframe,
         candle_count=len(candles),
-        latest_close=str(sorted(candles, key=lambda c: c.close_time)[-1].close),
+        latest_close=str(max(candles, key=lambda c: c.close_time).close),
         feature_set_version=features.feature_set_version,
         features={key: str(value) for key, value in features.values.items()},
         regime=regime,
