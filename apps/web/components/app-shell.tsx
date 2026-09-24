@@ -14,9 +14,14 @@ const primary = [
 ] as const;
 
 export default async function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
-  const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-  const email = typeof data?.claims?.email === "string" ? data.claims.email : "Account";
+  const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+  let email = "Account";
+
+  if (configured) {
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getClaims();
+    if (typeof data?.claims?.email === "string") email = data.claims.email;
+  }
 
   return (
     <>
