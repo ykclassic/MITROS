@@ -6,9 +6,6 @@ import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
-from decimal import Decimal
-
 import pytest
 
 
@@ -21,8 +18,6 @@ pytestmark = pytest.mark.skipif(
 API_URL = os.getenv("MITROS_PRODUCTION_API_URL", "https://mitros.onrender.com").rstrip("/")
 WEB_URL = os.getenv("MITROS_PRODUCTION_WEB_URL", "https://mitros.vercel.app").rstrip("/")
 VERCEL_ORIGIN = os.getenv("MITROS_PRODUCTION_VERCEL_ORIGIN", WEB_URL)
-EXPECTED_PROVIDERS = {"twelvedata", "finnhub", "alphavantage"}
-
 
 def request_json(
     url: str,
@@ -74,12 +69,11 @@ def test_production_web_market_api_requires_authentication() -> None:
 
 def test_production_web_deployment_is_reachable() -> None:
     try:
-        status, html, _ = request_text(f"{WEB_URL}/markets")
+        status, html, _ = request_text(f"{WEB_URL}/login")
     except Exception as exc:
         pytest.fail(f"Vercel deployment is unreachable: {exc}")
     assert status == 200
-    assert "BTC/USD" in html
-    assert "ETH/USD" in html
+    assert "MITROS secure access" in html
 
 
 def test_production_api_cors_and_health() -> None:
