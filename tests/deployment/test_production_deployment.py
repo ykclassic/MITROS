@@ -12,6 +12,12 @@ from decimal import Decimal
 import pytest
 
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("MITROS_RUN_DEPLOYMENT_E2E") != "true",
+    reason="production deployment E2E runs only in the deployment-e2e CI job",
+)
+
+
 API_URL = os.getenv("MITROS_PRODUCTION_API_URL", "https://mitros.onrender.com").rstrip("/")
 WEB_URL = os.getenv("MITROS_PRODUCTION_WEB_URL", "https://mitros.vercel.app").rstrip("/")
 VERCEL_ORIGIN = os.getenv("MITROS_PRODUCTION_VERCEL_ORIGIN", WEB_URL)
