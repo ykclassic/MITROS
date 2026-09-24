@@ -15,6 +15,9 @@ from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from packages.api.auth import AuthenticatedUser, require_user
+
+
+CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.crt import CRTAnalysis
 from contracts.features import FeatureSnapshot
@@ -268,7 +271,7 @@ def create_app() -> FastAPI:
         return ApiHealth(status="ok", service="mitros-api", timestamp=datetime.now(UTC))
 
     @app.get("/api/v1/auth/me", response_model=dict[str, object])
-    async def auth_me(user: AuthenticatedUser = Depends(require_user)) -> dict[str, object]:
+    async def auth_me(user: CurrentUser) -> dict[str, object]:
         return {
             "user_id": user.user_id,
             "email": user.email,
