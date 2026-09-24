@@ -16,8 +16,6 @@ from pydantic import BaseModel
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from packages.api.auth import AuthenticatedUser, require_user
 
-
-CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.crt import CRTAnalysis
 from contracts.features import FeatureSnapshot
@@ -44,6 +42,9 @@ from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
 from packages.strategies.smc import SMCStrategy
+
+
+CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 
 
 class ApiHealth(BaseModel):
