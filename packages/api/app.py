@@ -17,7 +17,7 @@ from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.crt import CRTAnalysis
 from contracts.features import FeatureSnapshot
 from contracts.regime import RegimeSnapshot, StatisticalSnapshot
-from contracts.research import ResearchArtifact, ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
+from contracts.research import ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
 from contracts.smc import SMCAnalysis
 from contracts.domain import StrategyVote
 from packages.features.engine import FeatureEngine
