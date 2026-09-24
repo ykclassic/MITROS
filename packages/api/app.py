@@ -320,7 +320,7 @@ def create_app() -> FastAPI:
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
-        positions = ()
+        positions: tuple[PositionState, ...] = ()
         if existing_exposure > 0:
             positions = (PositionState(asset=asset, market_value=existing_exposure, unrealized_pnl=Decimal("0"), direction="UNKNOWN"),)
         portfolio = PortfolioState(
