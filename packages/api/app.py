@@ -302,11 +302,8 @@ def create_app() -> FastAPI:
         equity: Annotated[Decimal, Query(gt=0)],
         daily_pnl: Annotated[Decimal, Query()],
         peak_equity: Annotated[Decimal, Query(gt=0)],
-        existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         requested_size: Annotated[Decimal, Query(gt=0)],
         stop_distance_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
-        correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         max_position_fraction: Annotated[Decimal, Query(gt=0, le=1)],
         max_gross_exposure: Annotated[Decimal, Query(gt=0)],
         max_daily_loss_fraction: Annotated[Decimal, Query(gt=0, le=1)],
@@ -317,6 +314,9 @@ def create_app() -> FastAPI:
         max_risk_fraction: Annotated[Decimal, Query(gt=0, le=1)],
         max_correlation_exposure: Annotated[Decimal, Query(gt=0)],
         asset: Annotated[str, Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$")],
+        existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
+        correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
