@@ -6,7 +6,16 @@ export async function updateSession(request: NextRequest) {
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) return response;
+  const pathname = request.nextUrl.pathname;
+  const isPublic = pathname === "/login" || pathname.startsWith("/auth/");
+  const isApi = pathname.startsWith("/api/");
+
+  if (!url || !key) {
+    if (process.env.MITROS_ENVIRONMENT === "production" && !isPublic && !isApi) {
+      return new NextResponse("Authentication configuration is unavailable", { status: 503 });
+    }
+    return response;
+  }
 
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -23,9 +32,7 @@ export async function updateSession(request: NextRequest) {
 
   const { data: claimsData } = await supabase.auth.getClaims();
   const claims = claimsData?.claims;
-  const pathname = request.nextUrl.pathname;
-  const isPublic = pathname === "/login" || pathname.startsWith("/auth/");
-  const isApi = pathname.startsWith("/api/");
+
   if (!isPublic && !isApi && !claims?.sub) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
