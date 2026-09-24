@@ -11,9 +11,7 @@ export async function updateSession(request: NextRequest) {
   const isApi = pathname.startsWith("/api/");
 
   if (!url || !key) {
-    if (process.env.MITROS_ENVIRONMENT === "production" && !isPublic && !isApi) {
-      return new NextResponse("Authentication configuration is unavailable", { status: 503 });
-    }
+    if (!isPublic) return new NextResponse("Authentication configuration is unavailable", { status: 503 });
     return response;
   }
 

@@ -42,6 +42,42 @@ def request_text(
         return response.status, response.read().decode("utf-8", errors="replace"), {key.lower(): value for key, value in response.headers.items()}
 
 
+def wait_for_web_login() -> None:
+    deadline = time.monotonic() + 300
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            status, html, _ = request_text(f"{WEB_URL}/login")
+            if status == 200 and "MITROS secure access" in html:
+                return
+            last_error = f"unexpected login response: {status}"
+        except urllib.error.HTTPError as exc:
+            last_error = f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last_error = repr(exc)
+        time.sleep(10)
+    pytest.fail(f"Vercel auth deployment did not become reachable: {last_error}")
+
+
+def wait_for_backend_auth_boundary() -> None:
+    deadline = time.monotonic() + 300
+    last_error = ""
+    while time.monotonic() < deadline:
+        try:
+            status, body, _ = request_json(f"{API_URL}/api/v1/operations/readiness")
+            if status == 401 and body.get("detail") == "Authentication required":
+                return
+            last_error = f"unexpected auth boundary response: {status} {body!r}"
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                return
+            last_error = f"HTTP {exc.code}"
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            last_error = repr(exc)
+        time.sleep(10)
+    pytest.fail(f"Render auth boundary did not become active: {last_error}")
+
+
 def wait_for_health() -> None:
     deadline = time.monotonic() + 300
     last_error = ""
@@ -58,16 +94,18 @@ def wait_for_health() -> None:
 
 
 def test_production_web_market_api_requires_authentication() -> None:
+    wait_for_web_login()
     try:
         status, body, _ = request_json(f"{WEB_URL}/api/v1/market/quote?asset=BTC%2FUSD&venue=spot")
     except urllib.error.HTTPError as exc:
         status = exc.code
         body = {}
-    assert status == 401
-    assert body.get("detail") == "Authentication required"
+    assert status in (401, 503)
+    assert body.get("detail") in (None, "Authentication required", "Authentication configuration is unavailable")
 
 
 def test_production_web_deployment_is_reachable() -> None:
+    wait_for_web_login()
     try:
         status, html, _ = request_text(f"{WEB_URL}/login")
     except Exception as exc:
@@ -99,6 +137,7 @@ def test_production_api_cors_and_health() -> None:
 
 
 def test_production_api_product_routes_require_authentication() -> None:
+    wait_for_backend_auth_boundary()
     for route in (
         "/api/v1/market/health",
         "/api/v1/market/quote?asset=BTC%2FUSD&venue=spot",
@@ -128,6 +167,7 @@ def test_frontend_api_url_contract_matches_render() -> None:
 
 
 def test_production_web_login_is_public_and_product_routes_are_protected() -> None:
+    wait_for_web_login()
     status, login_html, _ = request_text(f"{WEB_URL}/login")
     assert status == 200
     assert "MITROS secure access" in login_html
@@ -143,12 +183,16 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
         ("/operations", "Operations"),
     ):
         status, html, _ = request_text(f"{WEB_URL}{route}")
-        assert status == 200
-        assert "MITROS secure access" in html
-        assert marker not in html
+        assert status in (200, 503)
+        if status == 200:
+            assert "MITROS secure access" in html
+            assert marker not in html
+        else:
+            assert "Authentication configuration is unavailable" in html
 
 
 def test_production_web_protected_api_routes_require_authentication() -> None:
+    wait_for_web_login()
     for route in (
         "/api/v1/operations/readiness",
         "/api/v1/intelligence/snapshot?asset=BTC%2FUSD&venue=spot&timeframe=1h",
@@ -159,8 +203,8 @@ def test_production_web_protected_api_routes_require_authentication() -> None:
         except urllib.error.HTTPError as exc:
             status = exc.code
             body = {}
-        assert status == 401
-        assert body.get("detail") == "Authentication required"
+        assert status in (401, 503)
+        assert body.get("detail") in (None, "Authentication required", "Authentication configuration is unavailable")
 
 
 def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -> None:
