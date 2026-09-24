@@ -36,3 +36,20 @@ def test_production_vcs_origin_is_allowed(monkeypatch) -> None:
     )
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "https://mitros.vercel.app"
+
+
+def test_risk_assessment_is_independent_and_fail_closed() -> None:
+    client = TestClient(app)
+    params = {
+        "asset": "BTC/USD", "equity": "10000", "daily_pnl": "0", "peak_equity": "10000",
+        "existing_exposure": "0", "requested_size": "100", "stop_distance_fraction": "0.01",
+        "spread_fraction": "0.001", "correlated_exposure": "0", "max_position_fraction": "0.02",
+        "max_gross_exposure": "1", "max_daily_loss_fraction": "0.03", "max_drawdown_fraction": "0.10",
+        "max_concentration_fraction": "0.25", "max_leverage": "2", "max_spread_fraction": "0.005",
+        "max_risk_fraction": "0.01", "max_correlation_exposure": "0.50",
+    }
+    response = client.get("/api/v1/risk/assessment", params=params)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["approved"] is True
+    assert body["approved_size"] == "100"
