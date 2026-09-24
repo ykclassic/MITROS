@@ -28,6 +28,10 @@ export async function fetchJson<T>(path: string, init: ApiRequestInit = {}): Pro
       cache: "no-store",
       headers: { Accept: "application/json", ...(requestInit.headers ?? {}) },
     });
+    if (response.status === 401 && typeof window !== "undefined") {
+      window.location.assign("/login");
+      throw new ApiError(401, "Authentication required");
+    }
     if (!response.ok) throw new ApiError(response.status, "API request failed (HTTP " + response.status + ")");
     return (await response.json()) as T;
   } finally {
