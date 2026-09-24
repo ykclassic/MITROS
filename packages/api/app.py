@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 from functools import lru_cache
 
@@ -10,9 +11,11 @@ from pydantic import BaseModel
 from packages.market_data.config import MarketDataSettings
 from packages.market_data.contracts import MarketDataRequest, ProviderHealth, Quote
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
+from packages.market_data.interface import MarketDataProvider
 from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
 from packages.market_data.router import ProviderRouter
 from packages.market_data.symbols import SymbolMapper
+from packages.operations.config import ProductionConfig
 
 
 class ApiHealth(BaseModel):
@@ -47,7 +50,7 @@ def get_settings() -> MarketDataSettings:
 def build_router() -> ProviderRouter:
     settings = get_settings()
     symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
-    providers = []
+    providers: list[MarketDataProvider] = []
     if settings.twelvedata_api_key:
         providers.append(TwelveDataProvider(api_key=settings.twelvedata_api_key, symbols=symbols))
     if settings.finnhub_api_key:
@@ -61,9 +64,10 @@ def build_router() -> ProviderRouter:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="MITROS API", version="0.1.0", docs_url="/docs", redoc_url="/redoc")
+    origins = [item.strip() for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",") if item.strip()]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=origins or ["*"],
         allow_credentials=False,
         allow_methods=["GET"],
         allow_headers=["*"],
@@ -75,15 +79,29 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/operations/readiness", response_model=ReadinessResponse)
     async def readiness() -> ReadinessResponse:
-        execution_mode = "paper"
+        try:
+            config = ProductionConfig.from_env()
+        except ValueError:
+            return ReadinessResponse(
+                status="NOT_READY",
+                execution_mode="invalid",
+                live_trading_enabled=False,
+                checks={
+                    "api": "PASS",
+                    "production_configuration": "FAIL",
+                    "live_trading": "DISABLED",
+                    "human_approval": "REQUIRED",
+                },
+            )
         return ReadinessResponse(
-            status="READY",
-            execution_mode=execution_mode,
-            live_trading_enabled=False,
+            status="READY" if config.execution_mode.value == "paper" else "NOT_READY",
+            execution_mode=config.execution_mode.value,
+            live_trading_enabled=config.live_trading_enabled,
             checks={
                 "api": "PASS",
-                "paper_execution_default": "PASS",
-                "live_trading": "DISABLED",
+                "production_configuration": "PASS",
+                "paper_execution_default": "PASS" if config.execution_mode.value == "paper" else "FAIL",
+                "live_trading": "ENABLED" if config.live_trading_enabled else "DISABLED",
                 "human_approval": "REQUIRED",
             },
         )
@@ -94,8 +112,7 @@ def create_app() -> FastAPI:
         venue: str = Query(default="spot", min_length=1, max_length=32),
     ) -> MarketQuoteResponse:
         try:
-            router = build_router()
-            result: Quote = await router.quote(
+            result: Quote = await build_router().quote(
                 MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=1)
             )
         except (RuntimeError, ValueError) as exc:
