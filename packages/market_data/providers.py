@@ -85,9 +85,24 @@ class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
             provider=self.id,provider_version=self.version,observed_at=observed,received_at=datetime.now(UTC))
             for ts,row in items]
     async def quote(self,request:MarketDataRequest)->Quote:
-        m=self.symbols.resolve(self.id,request.asset); d=await self._get("/query",{"function":"GLOBAL_QUOTE","symbol":m.provider_symbol,"apikey":self.api_key})
-        q=d.get("Global Quote",{}); observed=datetime.now(UTC)
-        return Quote(asset=request.asset,venue=request.venue,last=Decimal(str(q["05. price"])),provider=self.id,provider_version=self.version,observed_at=observed,received_at=datetime.now(UTC))
+        m=self.symbols.resolve(self.id,request.asset)
+        if "/" in request.asset:
+            base, quote_currency = request.asset.split("/", 1)
+            data=await self._get("/query",{"function":"CURRENCY_EXCHANGE_RATE","from_currency":base,"to_currency":quote_currency,"apikey":self.api_key})
+            q=data.get("Realtime Currency Exchange Rate",{})
+            if "5. Exchange Rate" not in q:
+                raise RuntimeError("Alpha Vantage returned no realtime exchange rate")
+            refreshed=str(q.get("6. Last Refreshed") or "").strip()
+            observed=datetime.fromisoformat(refreshed).replace(tzinfo=UTC) if refreshed else datetime.now(UTC)
+            price=Decimal(str(q["5. Exchange Rate"]))
+        else:
+            data=await self._get("/query",{"function":"GLOBAL_QUOTE","symbol":m.provider_symbol,"apikey":self.api_key})
+            q=data.get("Global Quote",{})
+            if "05. price" not in q:
+                raise RuntimeError("Alpha Vantage returned no global quote price")
+            observed=datetime.now(UTC)
+            price=Decimal(str(q["05. price"]))
+        return Quote(asset=request.asset,venue=request.venue,last=price,provider=self.id,provider_version=self.version,observed_at=observed,received_at=datetime.now(UTC))
     async def health(self)->ProviderHealth:
         try: await self.quote(MarketDataRequest(asset="BTC/USD",venue="spot")); return ProviderHealth(provider=self.id,available=True,checked_at=datetime.now(UTC))
         except Exception as exc: return ProviderHealth(provider=self.id,available=False,checked_at=datetime.now(UTC),error=str(exc))

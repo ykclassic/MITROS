@@ -33,3 +33,25 @@ async def test_alpha_vantage_parser_preserves_provider_timestamp():
         p=AlphaVantageProvider(api_key="x",symbols=SymbolMapper({"alphavantage":{"BTC/USD":"BTC"}}),client=client)
         c=(await p.candles(MarketDataRequest(asset="BTC/USD",venue="spot",timeframe="1h",limit=1)))[0]
     assert c.provider=="alphavantage" and c.close==Decimal("105")
+
+
+@pytest.mark.asyncio
+async def test_alpha_vantage_crypto_quote_uses_realtime_exchange_rate():
+    payload = {
+        "Realtime Currency Exchange Rate": {
+            "1. From_Currency Code": "BTC",
+            "3. To_Currency Code": "USD",
+            "5. Exchange Rate": "65000.12",
+            "6. Last Refreshed": "2026-09-24 01:00:00",
+        }
+    }
+    async with httpx.AsyncClient(transport=MockTransport(payload)) as client:
+        p = AlphaVantageProvider(
+            api_key="x",
+            symbols=SymbolMapper({"alphavantage": {"BTC/USD": "BTC"}}),
+            client=client,
+        )
+        q = await p.quote(MarketDataRequest(asset="BTC/USD", venue="spot"))
+    assert q.provider == "alphavantage"
+    assert q.last == Decimal("65000.12")
+    assert q.observed_at.isoformat() == "2026-09-24T01:00:00+00:00"

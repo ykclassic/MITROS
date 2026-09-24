@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from packages.api.app import app, get_settings
+from packages.api.app import app, create_app, get_settings
 
 
 def test_health() -> None:
@@ -26,3 +26,13 @@ def test_quote_fails_closed_without_provider_credentials(monkeypatch) -> None:
     response = TestClient(app).get("/api/v1/market/quote?asset=BTC%2FUSD&venue=spot")
     assert response.status_code == 503
     get_settings.cache_clear()
+
+
+def test_production_vcs_origin_is_allowed(monkeypatch) -> None:
+    monkeypatch.setenv("MITROS_ALLOWED_ORIGINS", "https://mitros.vercel.app")
+    response = TestClient(create_app()).get(
+        "/health",
+        headers={"Origin": "https://mitros.vercel.app"},
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://mitros.vercel.app"
