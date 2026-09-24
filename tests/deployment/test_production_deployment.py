@@ -62,6 +62,17 @@ def wait_for_health() -> None:
     pytest.fail(f"Production API did not become healthy: {last_error}")
 
 
+def test_production_web_market_api_proxy_is_reachable() -> None:
+    for asset in ("BTC/USD", "ETH/USD"):
+        status, body, _ = request_json(
+            f"{WEB_URL}/api/v1/market/quote?asset={asset.replace('/', '%2F')}&venue=spot"
+        )
+        assert status == 200
+        assert body["asset"] == asset
+        assert Decimal(body["price"]) > 0
+        assert body["provider"] in EXPECTED_PROVIDERS
+        assert body["quality"] == "VERIFIED"
+
 def test_production_web_deployment_is_reachable() -> None:
     try:
         status, html, _ = request_text(f"{WEB_URL}/markets")

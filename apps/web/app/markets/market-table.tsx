@@ -24,9 +24,7 @@ function describeFetchFailure(response: Response): string {
 }
 
 export default function MarketTable() {
-  const base =
-    process.env.NEXT_PUBLIC_MITROS_API_URL ??
-    (process.env.NODE_ENV === "production" ? "https://mitros.onrender.com" : "http://localhost:8000");
+  const base = process.env.NODE_ENV === "production" ? "" : (process.env.NEXT_PUBLIC_MITROS_API_URL ?? "http://localhost:8000");
   const [quotes, setQuotes] = useState<Record<string, QuoteState>>({});
   const [loading, setLoading] = useState(true);
 
