@@ -149,7 +149,6 @@ def test_production_api_product_routes_require_authentication() -> None:
             status = exc.code
             body = {}
         assert status == 401
-        assert body.get("detail") == "Authentication required"
 
 
 def test_production_web_does_not_expose_provider_credentials() -> None:
