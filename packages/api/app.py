@@ -24,6 +24,7 @@ from contracts.domain import StrategyVote
 from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
 from packages.features.engine import FeatureEngine
 from packages.intelligence.regime import RegimeDetector
+from packages.market_data.cache import AsyncTTLCache
 from packages.market_data.config import MarketDataSettings
 from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, Quote
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
@@ -88,6 +89,9 @@ def get_settings() -> MarketDataSettings:
     return MarketDataSettings()
 
 
+candle_cache: AsyncTTLCache[list[Candle]] = AsyncTTLCache(ttl_seconds=60.0, max_entries=32)
+
+
 def build_router() -> ProviderRouter:
     settings = get_settings()
     symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
@@ -104,9 +108,12 @@ def build_router() -> ProviderRouter:
 
 
 async def load_candles(asset: str, venue: str, timeframe: str, limit: int) -> list[Candle]:
-    return await build_router().candles(
-        MarketDataRequest(asset=asset, venue=venue, timeframe=timeframe, limit=limit)
-    )
+    key = "|".join((asset, venue, timeframe, str(limit)))
+    async def fetch() -> list[Candle]:
+        return await build_router().candles(
+            MarketDataRequest(asset=asset, venue=venue, timeframe=timeframe, limit=limit)
+        )
+    return await candle_cache.get_or_load(key, fetch)
 
 
 def _statistical_snapshot(candles: list[Candle]) -> StatisticalSnapshot:
