@@ -340,6 +340,7 @@ def create_app() -> FastAPI:
         existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
         correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        *,
         user: CurrentUser,
     ) -> RiskAssessment:
         if peak_equity < equity:
