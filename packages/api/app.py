@@ -281,7 +281,7 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/v1/operations/readiness", response_model=ReadinessResponse)
-    async def readiness(user: AuthenticatedUser = Depends(require_user)) -> ReadinessResponse:
+    async def readiness(user: CurrentUser) -> ReadinessResponse:
 
         try:
             config = ProductionConfig.from_env()
@@ -301,7 +301,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/v1/market/quote", response_model=MarketQuoteResponse)
-    async def quote(user: AuthenticatedUser = Depends(require_user), asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
+    async def quote(user: CurrentUser, asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
         try:
             result: Quote = await build_router().quote(MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=1))
         except (RuntimeError, ValueError) as exc:
@@ -313,7 +313,7 @@ def create_app() -> FastAPI:
             received_at=result.received_at, quality=result.quality.value)
 
     @app.get("/api/v1/market/health", response_model=list[ProviderHealth])
-    async def market_health(user: AuthenticatedUser = Depends(require_user)) -> list[ProviderHealth]:
+    async def market_health(user: CurrentUser) -> list[ProviderHealth]:
         try:
             return list(await build_router().health())
         except RuntimeError:
@@ -339,7 +339,7 @@ def create_app() -> FastAPI:
         existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
         correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
-        user: AuthenticatedUser = Depends(require_user),
+        user: CurrentUser,
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
@@ -378,7 +378,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
-        user: AuthenticatedUser = Depends(require_user),
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -390,7 +390,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/report", response_model=ResearchReport)
     async def research_report(
-        user: AuthenticatedUser = Depends(require_user),
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -402,7 +402,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/copilot", response_model=ResearchAnswer)
     async def research_copilot(
-        user: AuthenticatedUser = Depends(require_user),
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
