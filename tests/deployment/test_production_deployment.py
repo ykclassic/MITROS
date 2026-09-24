@@ -94,7 +94,12 @@ def test_all_three_provider_credentials_are_runtime_usable() -> None:
     assert isinstance(body, list)
     providers = {item["provider"]: item for item in body}
     assert set(providers) == EXPECTED_PROVIDERS
-    assert all(item["available"] is True for item in providers.values())
+    unavailable = {
+        name: item.get("error") or "unavailable"
+        for name, item in providers.items()
+        if item.get("available") is not True
+    }
+    assert not unavailable, f"Provider runtime health failures: {unavailable}"
 
 
 @pytest.mark.parametrize("asset", ["BTC/USD", "ETH/USD"])
