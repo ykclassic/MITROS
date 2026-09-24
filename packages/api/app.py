@@ -9,11 +9,12 @@ from functools import lru_cache
 from itertools import pairwise
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
+from packages.api.auth import AuthenticatedUser, require_user
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.crt import CRTAnalysis
 from contracts.features import FeatureSnapshot
@@ -247,7 +248,7 @@ async def build_research_report(asset: str, venue: str, timeframe: str) -> Resea
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MITROS API", version="0.4.0", docs_url="/docs", redoc_url="/redoc")
+    app = FastAPI(title="MITROS API", version="0.5.0", docs_url="/docs", redoc_url="/redoc")
     configured_origins = [
         item.strip() for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",") if item.strip()
     ]
@@ -266,8 +267,19 @@ def create_app() -> FastAPI:
     async def health() -> ApiHealth:
         return ApiHealth(status="ok", service="mitros-api", timestamp=datetime.now(UTC))
 
+    @app.get("/api/v1/auth/me", response_model=dict[str, object])
+    async def auth_me(user: AuthenticatedUser = Depends(require_user)) -> dict[str, object]:
+        return {
+            "user_id": user.user_id,
+            "email": user.email,
+            "role": user.role,
+            "entitlements": list(user.entitlements),
+            "assurance_level": user.assurance_level,
+        }
+
     @app.get("/api/v1/operations/readiness", response_model=ReadinessResponse)
-    async def readiness() -> ReadinessResponse:
+    async def readiness(user: AuthenticatedUser = Depends(require_user)) -> ReadinessResponse:
+
         try:
             config = ProductionConfig.from_env()
         except ValueError:
@@ -286,7 +298,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/v1/market/quote", response_model=MarketQuoteResponse)
-    async def quote(asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
+    async def quote(user: AuthenticatedUser = Depends(require_user), asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
         try:
             result: Quote = await build_router().quote(MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=1))
         except (RuntimeError, ValueError) as exc:
@@ -298,7 +310,7 @@ def create_app() -> FastAPI:
             received_at=result.received_at, quality=result.quality.value)
 
     @app.get("/api/v1/market/health", response_model=list[ProviderHealth])
-    async def market_health() -> list[ProviderHealth]:
+    async def market_health(user: AuthenticatedUser = Depends(require_user)) -> list[ProviderHealth]:
         try:
             return list(await build_router().health())
         except RuntimeError:
@@ -306,6 +318,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
     async def risk_assessment(
+        user: AuthenticatedUser = Depends(require_user),
         equity: Annotated[Decimal, Query(gt=0)],
         daily_pnl: Annotated[Decimal, Query()],
         peak_equity: Annotated[Decimal, Query(gt=0)],
@@ -362,6 +375,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
+        user: AuthenticatedUser = Depends(require_user),
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -373,6 +387,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/report", response_model=ResearchReport)
     async def research_report(
+        user: AuthenticatedUser = Depends(require_user),
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -384,6 +399,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/copilot", response_model=ResearchAnswer)
     async def research_copilot(
+        user: AuthenticatedUser = Depends(require_user),
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
