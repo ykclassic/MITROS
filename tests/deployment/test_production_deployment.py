@@ -6,9 +6,6 @@ import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
-from decimal import Decimal
-
 import pytest
 
 
@@ -21,8 +18,6 @@ pytestmark = pytest.mark.skipif(
 API_URL = os.getenv("MITROS_PRODUCTION_API_URL", "https://mitros.onrender.com").rstrip("/")
 WEB_URL = os.getenv("MITROS_PRODUCTION_WEB_URL", "https://mitros.vercel.app").rstrip("/")
 VERCEL_ORIGIN = os.getenv("MITROS_PRODUCTION_VERCEL_ORIGIN", WEB_URL)
-EXPECTED_PROVIDERS = {"twelvedata", "finnhub", "alphavantage"}
-
 
 def request_json(
     url: str,
@@ -62,25 +57,23 @@ def wait_for_health() -> None:
     pytest.fail(f"Production API did not become healthy: {last_error}")
 
 
-def test_production_web_market_api_proxy_is_reachable() -> None:
-    for asset in ("BTC/USD", "ETH/USD"):
-        status, body, _ = request_json(
-            f"{WEB_URL}/api/v1/market/quote?asset={asset.replace('/', '%2F')}&venue=spot"
-        )
-        assert status == 200
-        assert body["asset"] == asset
-        assert Decimal(body["price"]) > 0
-        assert body["provider"] in EXPECTED_PROVIDERS
-        assert body["quality"] == "VERIFIED"
+def test_production_web_market_api_requires_authentication() -> None:
+    try:
+        status, body, _ = request_json(f"{WEB_URL}/api/v1/market/quote?asset=BTC%2FUSD&venue=spot")
+    except urllib.error.HTTPError as exc:
+        status = exc.code
+        body = {}
+    assert status == 401
+    assert body.get("detail") == "Authentication required"
+
 
 def test_production_web_deployment_is_reachable() -> None:
     try:
-        status, html, _ = request_text(f"{WEB_URL}/markets")
+        status, html, _ = request_text(f"{WEB_URL}/login")
     except Exception as exc:
         pytest.fail(f"Vercel deployment is unreachable: {exc}")
     assert status == 200
-    assert "BTC/USD" in html
-    assert "ETH/USD" in html
+    assert "MITROS secure access" in html
 
 
 def test_production_api_cors_and_health() -> None:
@@ -105,27 +98,19 @@ def test_production_api_cors_and_health() -> None:
     assert preflight_headers.get("access-control-allow-origin") == VERCEL_ORIGIN
 
 
-def test_all_three_provider_credentials_are_configured() -> None:
-    status, body, _ = request_json(f"{API_URL}/api/v1/market/health")
-    assert status == 200
-    assert isinstance(body, list)
-    providers = {item["provider"]: item for item in body}
-    assert set(providers) == EXPECTED_PROVIDERS
-    assert all(isinstance(item.get("available"), bool) for item in providers.values())
-
-
-@pytest.mark.parametrize("asset", ["BTC/USD", "ETH/USD"])
-def test_production_quote(asset: str) -> None:
-    status, body, _ = request_json(
-        f"{API_URL}/api/v1/market/quote?asset={asset.replace('/', '%2F')}&venue=spot"
-    )
-    assert status == 200
-    assert body["asset"] == asset
-    assert body["provider"] in EXPECTED_PROVIDERS
-    assert Decimal(body["price"]) > 0
-    assert body["quality"] == "VERIFIED"
-    datetime.fromisoformat(body["observed_at"])
-    datetime.fromisoformat(body["received_at"])
+def test_production_api_product_routes_require_authentication() -> None:
+    for route in (
+        "/api/v1/market/health",
+        "/api/v1/market/quote?asset=BTC%2FUSD&venue=spot",
+        "/api/v1/operations/readiness",
+    ):
+        try:
+            status, body, _ = request_json(f"{API_URL}{route}")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            body = {}
+        assert status == 401
+        assert body.get("detail") == "Authentication required"
 
 
 def test_production_web_does_not_expose_provider_credentials() -> None:
@@ -142,9 +127,12 @@ def test_frontend_api_url_contract_matches_render() -> None:
     assert VERCEL_ORIGIN == WEB_URL
 
 
-def test_production_web_product_routes_are_reachable() -> None:
+def test_production_web_login_is_public_and_product_routes_are_protected() -> None:
+    status, login_html, _ = request_text(f"{WEB_URL}/login")
+    assert status == 200
+    assert "MITROS secure access" in login_html
+
     for route, marker in (
-        ("/", "MITROS"),
         ("/markets", "Markets"),
         ("/intelligence", "Intelligence"),
         ("/strategies", "Strategies"),
@@ -156,53 +144,23 @@ def test_production_web_product_routes_are_reachable() -> None:
     ):
         status, html, _ = request_text(f"{WEB_URL}{route}")
         assert status == 200
-        assert marker in html
+        assert "MITROS secure access" in html
+        assert marker not in html
 
 
-def test_production_web_readiness_proxy_is_reachable() -> None:
-    status, body, _ = request_json(f"{WEB_URL}/api/v1/operations/readiness")
-    assert status == 200
-    assert body["execution_mode"] == "paper"
-    assert body["live_trading_enabled"] is False
-    assert body["checks"]["human_approval"] == "REQUIRED"
-
-
-def test_production_web_risk_proxy_is_read_only() -> None:
-    params = (
-        "asset=BTC%2FUSD&equity=10000&daily_pnl=0&peak_equity=10000"
-        "&requested_size=100&stop_distance_fraction=0.01"
-        "&max_position_fraction=0.02&max_gross_exposure=1"
-        "&max_daily_loss_fraction=0.03&max_drawdown_fraction=0.10"
-        "&max_concentration_fraction=0.25&max_leverage=2"
-        "&max_spread_fraction=0.005&max_risk_fraction=0.01"
-        "&max_correlation_exposure=0.50"
-    )
-    status, body, _ = request_json(f"{WEB_URL}/api/v1/risk/assessment?{params}")
-    assert status == 200
-    assert body["approved"] is True
-    assert body["approved_size"] == "100"
-
-
-def test_production_web_intelligence_proxy_is_reachable() -> None:
-    status, body, _ = request_json(
-        f"{WEB_URL}/api/v1/intelligence/snapshot?asset=BTC%2FUSD&venue=spot&timeframe=1h"
-    )
-    assert status == 200
-    assert body["asset"] == "BTC/USD"
-    assert body["candle_count"] >= 50
-    assert body["features"]
-    assert body["regime"]["regime"]
-    assert body["consensus"]["direction"]
-
-
-def test_production_web_research_proxy_is_grounded() -> None:
-    status, body, _ = request_json(
-        f"{WEB_URL}/api/v1/research/copilot?asset=BTC%2FUSD&venue=spot&timeframe=1h"
-    )
-    assert status == 200
-    assert body["grounded"] is True
-    assert body["evidence"]
-    assert all(item["checksum"] for item in body["evidence"])
+def test_production_web_protected_api_routes_require_authentication() -> None:
+    for route in (
+        "/api/v1/operations/readiness",
+        "/api/v1/intelligence/snapshot?asset=BTC%2FUSD&venue=spot&timeframe=1h",
+        "/api/v1/research/copilot?asset=BTC%2FUSD&venue=spot&timeframe=1h",
+    ):
+        try:
+            status, body, _ = request_json(f"{WEB_URL}{route}")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            body = {}
+        assert status == 401
+        assert body.get("detail") == "Authentication required"
 
 
 def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -> None:

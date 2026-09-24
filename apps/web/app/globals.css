@@ -60,3 +60,11 @@ h2 { font-size:18px; margin:0 0 16px; }
 .form-grid label { display:grid; gap:7px; color:#91a2b5; font-size:12px; }
 .form-grid input,.form-grid select { width:100%; padding:9px 10px; border:1px solid #2a4058; border-radius:8px; background:#102238; color:#e7eef7; }
 .evidence small { color:#71859a; line-height:1.45; }
+
+.auth-main { min-height: 80vh; display: grid; place-items: center; }
+.auth-card { width: min(100%, 460px); }
+.auth-form { display: grid; gap: 1rem; margin-top: 1.5rem; }
+.auth-form label { display: grid; gap: .4rem; font-weight: 600; }
+.auth-form input { width: 100%; padding: .75rem; border: 1px solid #d4d8df; border-radius: .5rem; background: white; }
+.auth-message { margin-top: 1rem; }
+.link-button { margin-top: 1rem; border: 0; background: transparent; padding: 0; text-decoration: underline; cursor: pointer; }

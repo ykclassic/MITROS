@@ -23,3 +23,14 @@ The frontend is observational and does not hold provider credentials, approval t
 - GET /api/v1/market/health
 
 Production deployment verification must exercise both the direct Render API and the Vercel same-origin proxy path.
+
+
+## Phase 19 authentication boundary
+
+All product APIs under `/api/v1/*` require an authenticated Supabase access token.
+
+The browser never calls Render directly. Next.js `/api/[...path]` authenticates the cookie session, obtains the current access token, and forwards it to FastAPI. FastAPI independently verifies the token signature, issuer, audience, expiry and subject before serving product data.
+
+Unauthenticated requests fail with HTTP 401. Authentication configuration failures fail closed rather than downgrading to anonymous access.
+
+The public health endpoint remains `/health` only. It reports service liveness and does not expose market data, provider health, intelligence, research or trading state.

@@ -64,7 +64,7 @@ def test_deployment_docs_define_public_private_boundary() -> None:
     content = (ROOT / "docs/architecture/deployment-configuration.md").read_text(
         encoding="utf-8"
     )
-    assert "NEXT_PUBLIC_SUPABASE_ANON_KEY" in content
+    assert "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY" in content
     assert "SUPABASE_SERVICE_ROLE_KEY" in content
     assert "MITROS_MARKET_TWELVEDATA_API_KEY" in content
     assert "MITROS_MT5_PASSWORD" in content

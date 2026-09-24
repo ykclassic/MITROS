@@ -9,11 +9,13 @@ from functools import lru_cache
 from itertools import pairwise
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
+from packages.api.auth import AuthenticatedUser, require_user
+
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.crt import CRTAnalysis
 from contracts.features import FeatureSnapshot
@@ -40,6 +42,9 @@ from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
 from packages.strategies.smc import SMCStrategy
+
+
+CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 
 
 class ApiHealth(BaseModel):
@@ -247,7 +252,7 @@ async def build_research_report(asset: str, venue: str, timeframe: str) -> Resea
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MITROS API", version="0.4.0", docs_url="/docs", redoc_url="/redoc")
+    app = FastAPI(title="MITROS API", version="0.5.0", docs_url="/docs", redoc_url="/redoc")
     configured_origins = [
         item.strip() for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",") if item.strip()
     ]
@@ -259,15 +264,26 @@ def create_app() -> FastAPI:
         allow_origins=origins or ["http://localhost:3000"],
         allow_credentials=False,
         allow_methods=["GET"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_headers=["Accept", "Authorization", "Content-Type", "X-MITROS-Request-ID"],
     )
 
     @app.get("/health", response_model=ApiHealth)
     async def health() -> ApiHealth:
         return ApiHealth(status="ok", service="mitros-api", timestamp=datetime.now(UTC))
 
+    @app.get("/api/v1/auth/me", response_model=dict[str, object])
+    async def auth_me(user: CurrentUser) -> dict[str, object]:
+        return {
+            "user_id": user.user_id,
+            "email": user.email,
+            "role": user.role,
+            "entitlements": list(user.entitlements),
+            "assurance_level": user.assurance_level,
+        }
+
     @app.get("/api/v1/operations/readiness", response_model=ReadinessResponse)
-    async def readiness() -> ReadinessResponse:
+    async def readiness(user: CurrentUser) -> ReadinessResponse:
+
         try:
             config = ProductionConfig.from_env()
         except ValueError:
@@ -286,7 +302,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/v1/market/quote", response_model=MarketQuoteResponse)
-    async def quote(asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
+    async def quote(user: CurrentUser, asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
         try:
             result: Quote = await build_router().quote(MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=1))
         except (RuntimeError, ValueError) as exc:
@@ -298,7 +314,7 @@ def create_app() -> FastAPI:
             received_at=result.received_at, quality=result.quality.value)
 
     @app.get("/api/v1/market/health", response_model=list[ProviderHealth])
-    async def market_health() -> list[ProviderHealth]:
+    async def market_health(user: CurrentUser) -> list[ProviderHealth]:
         try:
             return list(await build_router().health())
         except RuntimeError:
@@ -324,6 +340,8 @@ def create_app() -> FastAPI:
         existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
         correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        *,
+        user: CurrentUser,
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
@@ -362,6 +380,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -373,6 +392,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/report", response_model=ResearchReport)
     async def research_report(
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
@@ -384,6 +404,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/research/copilot", response_model=ResearchAnswer)
     async def research_copilot(
+        user: CurrentUser,
         asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
         venue: str = Query(default="spot", min_length=1, max_length=32),
         timeframe: str = Query(default="1h", pattern=r"^(15m|1h|4h)$"),
