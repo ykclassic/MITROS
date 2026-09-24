@@ -20,6 +20,7 @@ from contracts.regime import RegimeSnapshot, StatisticalSnapshot
 from contracts.research import ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
 from contracts.smc import SMCAnalysis
 from contracts.domain import StrategyVote
+from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
 from packages.features.engine import FeatureEngine
 from packages.intelligence.regime import RegimeDetector
 from packages.market_data.config import MarketDataSettings
@@ -32,6 +33,7 @@ from packages.market_data.symbols import SymbolMapper
 from packages.operations.config import ProductionConfig
 from packages.research.copilot import GroundedResearchCopilot
 from packages.research.platform import ResearchPlatform
+from packages.risk.engine import AdvancedRiskEngine
 from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
@@ -237,7 +239,7 @@ async def build_research_report(asset: str, venue: str, timeframe: str) -> Resea
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="MITROS API", version="0.3.0", docs_url="/docs", redoc_url="/redoc")
+    app = FastAPI(title="MITROS API", version="0.4.0", docs_url="/docs", redoc_url="/redoc")
     configured_origins = [
         item.strip() for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",") if item.strip()
     ]
@@ -293,6 +295,62 @@ def create_app() -> FastAPI:
             return list(await build_router().health())
         except RuntimeError:
             return []
+
+    @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
+    async def risk_assessment(
+        equity: Decimal = Query(gt=0),
+        daily_pnl: Decimal = Query(),
+        peak_equity: Decimal = Query(gt=0),
+        existing_exposure: Decimal = Query(default=Decimal("0"), ge=0),
+        requested_size: Decimal = Query(gt=0),
+        stop_distance_fraction: Decimal = Query(gt=0, le=1),
+        spread_fraction: Decimal = Query(default=Decimal("0"), ge=0, le=1),
+        correlated_exposure: Decimal = Query(default=Decimal("0"), ge=0),
+        max_position_fraction: Decimal = Query(gt=0, le=1),
+        max_gross_exposure: Decimal = Query(gt=0),
+        max_daily_loss_fraction: Decimal = Query(gt=0, le=1),
+        max_drawdown_fraction: Decimal = Query(gt=0, le=1),
+        max_concentration_fraction: Decimal = Query(gt=0, le=1),
+        max_leverage: Decimal = Query(gt=0),
+        max_spread_fraction: Decimal = Query(gt=0, le=1),
+        max_risk_fraction: Decimal = Query(gt=0, le=1),
+        max_correlation_exposure: Decimal = Query(gt=0),
+        asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
+    ) -> RiskAssessment:
+        if peak_equity < equity:
+            raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
+        positions = ()
+        if existing_exposure > 0:
+            positions = (PositionState(asset=asset, market_value=existing_exposure, unrealized_pnl=Decimal("0"), direction="UNKNOWN"),)
+        portfolio = PortfolioState(
+            equity=equity,
+            balance=equity,
+            daily_pnl=daily_pnl,
+            peak_equity=peak_equity,
+            positions=positions,
+        )
+        limits = RiskLimits(
+            max_position_fraction=max_position_fraction,
+            max_gross_exposure=max_gross_exposure,
+            max_daily_loss_fraction=max_daily_loss_fraction,
+            max_drawdown_fraction=max_drawdown_fraction,
+            max_concentration_fraction=max_concentration_fraction,
+            max_leverage=max_leverage,
+            max_spread_fraction=max_spread_fraction,
+            max_risk_fraction=max_risk_fraction,
+            max_correlation_exposure=max_correlation_exposure,
+        )
+        try:
+            return AdvancedRiskEngine(limits).assess(
+                portfolio,
+                asset=asset,
+                requested_size=requested_size,
+                stop_distance_fraction=stop_distance_fraction,
+                spread_fraction=spread_fraction,
+                correlated_exposure=correlated_exposure,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
