@@ -147,7 +147,6 @@ def test_production_api_product_routes_require_authentication() -> None:
             status, body, _ = request_json(f"{API_URL}{route}")
         except urllib.error.HTTPError as exc:
             status = exc.code
-            body = {}
         assert status == 401
 
 
