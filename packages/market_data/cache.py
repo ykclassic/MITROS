@@ -4,18 +4,18 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
 
 @dataclass(slots=True)
-class _Entry(Generic[T]):
+class _Entry[T]:
     value: T
     expires_at: float
 
 
-class AsyncTTLCache(Generic[T]):
+class AsyncTTLCache[T]:
     """Small process-local cache with per-key in-flight request coalescing."""
 
     def __init__(self, *, ttl_seconds: float = 30.0, max_entries: int = 64) -> None:
