@@ -260,7 +260,7 @@ def create_app() -> FastAPI:
         allow_origins=origins or ["http://localhost:3000"],
         allow_credentials=False,
         allow_methods=["GET"],
-        allow_headers=["Accept", "Content-Type"],
+        allow_headers=["Accept", "Authorization", "Content-Type", "X-MITROS-Request-ID"],
     )
 
     @app.get("/health", response_model=ApiHealth)
