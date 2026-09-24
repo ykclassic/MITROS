@@ -54,12 +54,16 @@ class SupabaseTokenVerifier:
             else ("free",)
         )
 
+        role = metadata.get("role")
+        role = role if isinstance(role, str) else "user"
+        assurance_level = claims.get("aal")
+        assurance_level = assurance_level if isinstance(assurance_level, str) else "aal1"
         return AuthenticatedUser(
             user_id=user_id,
             email=claims.get("email") if isinstance(claims.get("email"), str) else None,
-            role=metadata.get("role") if isinstance(metadata.get("role"), str) else "user",
+            role=role,
             entitlements=entitlements or ("free",),
-            assurance_level=claims.get("aal") if isinstance(claims.get("aal"), str) else "aal1",
+            assurance_level=assurance_level,
         )
 
     def verify(self, token: str) -> AuthenticatedUser:
@@ -113,10 +117,12 @@ class SupabaseTokenVerifier:
             else ("free",)
         )
 
+        role = metadata.get("role")
+        role = role if isinstance(role, str) else "user"
         return AuthenticatedUser(
             user_id=user_id,
             email=user.get("email") if isinstance(user.get("email"), str) else None,
-            role=metadata.get("role") if isinstance(metadata.get("role"), str) else "user",
+            role=role,
             entitlements=entitlements or ("free",),
             assurance_level="aal1",
         )
