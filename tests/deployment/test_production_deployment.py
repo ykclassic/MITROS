@@ -8,7 +8,6 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from decimal import Decimal
-from urllib.parse import urljoin
 
 import pytest
 
@@ -31,13 +30,24 @@ def request_json(
         return response.status, json.loads(body), dict(response.headers)
 
 
+def request_text(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str, dict[str, str]]:
+    request = urllib.request.Request(url, method=method, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=20) as response:
+        return response.status, response.read().decode("utf-8", errors="replace"), dict(response.headers)
+
+
 def wait_for_health() -> None:
     deadline = time.monotonic() + 300
     last_error = ""
     while time.monotonic() < deadline:
         try:
             status, body, _ = request_json(f"{API_URL}/health")
-            if status == 200 and body.get("status") == "ok":
+            if status == 200 and isinstance(body, dict) and body.get("status") == "ok":
                 return
             last_error = f"unexpected health response: {status} {body!r}"
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
@@ -48,11 +58,12 @@ def wait_for_health() -> None:
 
 def test_production_web_deployment_is_reachable() -> None:
     try:
-        status, body, _ = request_json(WEB_URL)
+        status, html, _ = request_text(f"{WEB_URL}/markets")
     except Exception as exc:
         pytest.fail(f"Vercel deployment is unreachable: {exc}")
     assert status == 200
-    assert isinstance(body, (dict, list)) or body is not None
+    assert "BTC/USD" in html
+    assert "ETH/USD" in html
 
 
 def test_production_api_cors_and_health() -> None:
@@ -65,7 +76,7 @@ def test_production_api_cors_and_health() -> None:
     assert body["status"] == "ok"
     assert headers.get("Access-Control-Allow-Origin") == VERCEL_ORIGIN
 
-    preflight_status, _, preflight_headers = request_json(
+    preflight_status, _, preflight_headers = request_text(
         f"{API_URL}/api/v1/market/quote?asset=BTC%2FUSD&venue=spot",
         method="OPTIONS",
         headers={
@@ -101,9 +112,7 @@ def test_production_quote(asset: str) -> None:
 
 
 def test_production_web_does_not_expose_provider_credentials() -> None:
-    request = urllib.request.Request(WEB_URL)
-    with urllib.request.urlopen(request, timeout=20) as response:
-        html = response.read().decode("utf-8", errors="replace")
+    _, html, _ = request_text(f"{WEB_URL}/markets")
     assert "MITROS_MARKET_TWELVEDATA_API_KEY" not in html
     assert "MITROS_MARKET_FINNHUB_API_KEY" not in html
     assert "MITROS_MARKET_ALPHAVANTAGE_API_KEY" not in html
