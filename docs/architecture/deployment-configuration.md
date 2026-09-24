@@ -45,6 +45,7 @@ The Render backend/worker environment is the server-side runtime secret boundary
 - `MITROS_DATABASE_URL`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_PUBLISHABLE_KEY`
 - `MITROS_MARKET_TWELVEDATA_API_KEY`
 - `MITROS_MARKET_FINNHUB_API_KEY`
 - `MITROS_MARKET_ALPHAVANTAGE_API_KEY`
@@ -76,7 +77,7 @@ Only public/browser-safe configuration may use `NEXT_PUBLIC_*`:
 
 - `NEXT_PUBLIC_MITROS_API_URL`
 - `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 
 Server-only Vercel configuration, if needed:
 
