@@ -140,3 +140,80 @@ def test_frontend_api_url_contract_matches_render() -> None:
     assert API_URL == "https://mitros.onrender.com"
     assert WEB_URL == "https://mitros.vercel.app"
     assert VERCEL_ORIGIN == WEB_URL
+
+
+def test_production_web_product_routes_are_reachable() -> None:
+    for route, marker in (
+        ("/", "MITROS"),
+        ("/markets", "Markets"),
+        ("/intelligence", "Intelligence"),
+        ("/strategies", "Strategies"),
+        ("/signals", "Signals"),
+        ("/risk", "Risk"),
+        ("/research", "Research"),
+        ("/trading", "Trading"),
+        ("/operations", "Operations"),
+    ):
+        status, html, _ = request_text(f"{WEB_URL}{route}")
+        assert status == 200
+        assert marker in html
+
+
+def test_production_web_readiness_proxy_is_reachable() -> None:
+    status, body, _ = request_json(f"{WEB_URL}/api/v1/operations/readiness")
+    assert status == 200
+    assert body["execution_mode"] == "paper"
+    assert body["live_trading_enabled"] is False
+    assert body["checks"]["human_approval"] == "REQUIRED"
+
+
+def test_production_web_risk_proxy_is_read_only() -> None:
+    params = (
+        "asset=BTC%2FUSD&equity=10000&daily_pnl=0&peak_equity=10000"
+        "&requested_size=100&stop_distance_fraction=0.01"
+        "&max_position_fraction=0.02&max_gross_exposure=1"
+        "&max_daily_loss_fraction=0.03&max_drawdown_fraction=0.10"
+        "&max_concentration_fraction=0.25&max_leverage=2"
+        "&max_spread_fraction=0.005&max_risk_fraction=0.01"
+        "&max_correlation_exposure=0.50"
+    )
+    status, body, _ = request_json(f"{WEB_URL}/api/v1/risk/assessment?{params}")
+    assert status == 200
+    assert body["approved"] is True
+    assert body["approved_size"] == "100"
+
+
+def test_production_web_intelligence_proxy_is_reachable() -> None:
+    status, body, _ = request_json(
+        f"{WEB_URL}/api/v1/intelligence/snapshot?asset=BTC%2FUSD&venue=spot&timeframe=1h"
+    )
+    assert status == 200
+    assert body["asset"] == "BTC/USD"
+    assert body["candle_count"] >= 50
+    assert body["features"]
+    assert body["regime"]["regime"]
+    assert body["consensus"]["direction"]
+
+
+def test_production_web_research_proxy_is_grounded() -> None:
+    status, body, _ = request_json(
+        f"{WEB_URL}/api/v1/research/copilot?asset=BTC%2FUSD&venue=spot&timeframe=1h"
+    )
+    assert status == 200
+    assert body["grounded"] is True
+    assert body["evidence"]
+    assert all(item["checksum"] for item in body["evidence"])
+
+
+def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -> None:
+    for route in (
+        "/api/v1/approval/approve",
+        "/api/v1/approval/reject",
+        "/api/v1/execution/order",
+        "/api/v1/execution/submit",
+    ):
+        try:
+            status, _, _ = request_text(f"{WEB_URL}{route}", method="POST")
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+        assert status == 404
