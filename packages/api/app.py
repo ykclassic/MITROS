@@ -64,7 +64,18 @@ def build_router() -> ProviderRouter:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="MITROS API", version="0.1.0", docs_url="/docs", redoc_url="/redoc")
-    origins = [item.strip() for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",") if item.strip()]
+    configured_origins = [
+        item.strip()
+        for item in os.getenv("MITROS_ALLOWED_ORIGINS", "").split(",")
+        if item.strip()
+    ]
+    frontend_origin = os.getenv("MITROS_FRONTEND_URL", "").strip()
+    production_origins = [
+        origin
+        for origin in (frontend_origin, "https://mitros.vercel.app")
+        if origin
+    ]
+    origins = list(dict.fromkeys(configured_origins + production_origins))
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins or ["*"],
