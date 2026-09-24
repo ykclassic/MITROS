@@ -318,7 +318,6 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
     async def risk_assessment(
-        user: AuthenticatedUser = Depends(require_user),
         equity: Annotated[Decimal, Query(gt=0)],
         daily_pnl: Annotated[Decimal, Query()],
         peak_equity: Annotated[Decimal, Query(gt=0)],
@@ -337,6 +336,7 @@ def create_app() -> FastAPI:
         existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
         spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
         correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        user: AuthenticatedUser = Depends(require_user),
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
