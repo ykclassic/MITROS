@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
 from itertools import pairwise
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -298,24 +299,24 @@ def create_app() -> FastAPI:
 
     @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
     async def risk_assessment(
-        equity: Decimal = Query(gt=0),
-        daily_pnl: Decimal = Query(),
-        peak_equity: Decimal = Query(gt=0),
-        existing_exposure: Decimal = Query(default=Decimal("0"), ge=0),
-        requested_size: Decimal = Query(gt=0),
-        stop_distance_fraction: Decimal = Query(gt=0, le=1),
-        spread_fraction: Decimal = Query(default=Decimal("0"), ge=0, le=1),
-        correlated_exposure: Decimal = Query(default=Decimal("0"), ge=0),
-        max_position_fraction: Decimal = Query(gt=0, le=1),
-        max_gross_exposure: Decimal = Query(gt=0),
-        max_daily_loss_fraction: Decimal = Query(gt=0, le=1),
-        max_drawdown_fraction: Decimal = Query(gt=0, le=1),
-        max_concentration_fraction: Decimal = Query(gt=0, le=1),
-        max_leverage: Decimal = Query(gt=0),
-        max_spread_fraction: Decimal = Query(gt=0, le=1),
-        max_risk_fraction: Decimal = Query(gt=0, le=1),
-        max_correlation_exposure: Decimal = Query(gt=0),
-        asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"),
+        equity: Annotated[Decimal, Query(gt=0)],
+        daily_pnl: Annotated[Decimal, Query()],
+        peak_equity: Annotated[Decimal, Query(gt=0)],
+        existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        requested_size: Annotated[Decimal, Query(gt=0)],
+        stop_distance_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
+        correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
+        max_position_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_gross_exposure: Annotated[Decimal, Query(gt=0)],
+        max_daily_loss_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_drawdown_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_concentration_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_leverage: Annotated[Decimal, Query(gt=0)],
+        max_spread_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_risk_fraction: Annotated[Decimal, Query(gt=0, le=1)],
+        max_correlation_exposure: Annotated[Decimal, Query(gt=0)],
+        asset: Annotated[str, Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$")],
     ) -> RiskAssessment:
         if peak_equity < equity:
             raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
