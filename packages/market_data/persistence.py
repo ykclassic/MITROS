@@ -62,7 +62,7 @@ class PostgresVerifiedMarketDataRepository:
                     )
                     identity = await cursor.fetchone()
                     if identity is None:
-                        raise VerifiedMarketDataPersistenceError(
+                    raise VerifiedMarketDataPersistenceError(
                             "canonical asset/venue not configured: "
                             f"{candle.asset}/{candle.venue}"
                         )
@@ -123,8 +123,8 @@ class PostgresVerifiedMarketDataRepository:
                             candle.checksum,
                         ),
                     )
-                    row = await cursor.fetchone()
-                    if row is None:
+                row = await cursor.fetchone()
+                if row is None:
                         raise VerifiedMarketDataPersistenceError(
                             "candle persistence did not return an observation id"
                         )
@@ -192,9 +192,8 @@ class PostgresVerifiedMarketDataRepository:
     ) -> ProvenanceRecord:
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute(
+        ) as connection, connection.cursor() as cursor:
+            await cursor.execute(
                     """
                     select c.id, a.canonical_symbol as asset, v.name as venue,
                            c.timeframe, c.provenance, c.data_quality
@@ -208,30 +207,26 @@ class PostgresVerifiedMarketDataRepository:
                 row = await cursor.fetchone()
                 if row is None:
                     raise VerifiedMarketDataPersistenceError(
-                        f"observation {observation_id} was not found"
-                    )
+                    f"observation {observation_id} was not found"
+                )
 
-                provenance = row["provenance"]
-                return ProvenanceRecord(
-                    observation_id=row["id"],
-                    asset=row["asset"],
-                    venue=row["venue"],
-                    symbol=provenance["symbol"],
-                    timeframe=row["timeframe"],
-                    provider=provenance["provider"],
-                    provider_version=provenance.get("provider_version"),
-                    request_id=(
-                        UUID(provenance["request_id"])
-                        if provenance.get("request_id")
-                        else None
-                    ),
-                    observation_checksum=provenance["observation_checksum"],
-                    batch_checksum=provenance.get("batch_checksum"),
-                    data_quality=DataQuality(row["data_quality"]),
-                    observed_at=datetime.fromisoformat(
-                        provenance["observed_at"]
-                    ),
-                    received_at=datetime.fromisoformat(
-                        provenance["received_at"]
-                    ),
+            provenance = row["provenance"]
+            return ProvenanceRecord(
+                observation_id=row["id"],
+                asset=row["asset"],
+                venue=row["venue"],
+                symbol=provenance["symbol"],
+                timeframe=row["timeframe"],
+                provider=provenance["provider"],
+                provider_version=provenance.get("provider_version"),
+                request_id=(
+                    UUID(provenance["request_id"])
+                    if provenance.get("request_id")
+                    else None
+                ),
+                observation_checksum=provenance["observation_checksum"],
+                batch_checksum=provenance.get("batch_checksum"),
+                data_quality=DataQuality(row["data_quality"]),
+                observed_at=datetime.fromisoformat(provenance["observed_at"]),
+                received_at=datetime.fromisoformat(provenance["received_at"]),
                 )
