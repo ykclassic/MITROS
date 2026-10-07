@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 from pydantic import BaseModel, ConfigDict, Field
+from contracts.regime import RegimeSnapshot
 
 
 class MarketStructureKind(StrEnum):
@@ -110,6 +111,6 @@ class IntelligenceSnapshot(BaseModel):
     liquidity: LiquiditySnapshot
     smc: SMCContextSnapshot
     crt: CRTSnapshot
-    regime: object
+    regime: RegimeSnapshot
     context: IntelligenceContext
     snapshot_checksum: str
