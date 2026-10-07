@@ -4,7 +4,7 @@ from hashlib import sha256
 from itertools import pairwise
 import json
 
-from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot
+from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot\nfrom contracts.regime import MarketRegime
 from packages.market_data.contracts import Candle, DataQuality
 
 from .crt import analyze_crt
@@ -43,7 +43,7 @@ class MarketIntelligenceEngine:
             session=liquidity.session, news_active=False)
         if intelligence_context.news_active:
             regime = regime.model_copy(update={
-                "regime": "NEWS",
+                "regime": MarketRegime.NEWS,
                 "confidence": Decimal("1"),
                 "reasons": regime.reasons + ("external_news_context_active",),
             })
