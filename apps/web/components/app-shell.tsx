@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { createClient } from "../lib/supabase/server";
 
 const primary = [
@@ -14,7 +15,17 @@ const primary = [
 ] as const;
 
 export default async function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
-  const configured = Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+  const requestHeaders = await headers();
+
+  // Public auth pages intentionally render without the authenticated app shell.
+  if (requestHeaders.get("x-mitros-public-route") === "1") {
+    return <>{children}</>;
+  }
+
+  const configured = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+  );
   let email = "Account";
 
   if (configured) {
