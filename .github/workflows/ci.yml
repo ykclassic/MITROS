@@ -48,9 +48,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: test -s supabase/migrations/0001_mitros_foundation.sql
-      - run: test -s supabase/migrations/0002_execution_ledger.sql
-      - run: test -s supabase/migrations/0003_auth_identity.sql
+      - run: test -s supabase/migrations/20261007222136_0001_mitros_foundation.sql
+      - run: test -s supabase/migrations/20261007222141_0002_execution_ledger.sql
+      - run: test -s supabase/migrations/20261007222144_0003_auth_identity.sql
+      - run: test -s supabase/migrations/20261007222149_0004_phase1_market_data.sql
   configuration:
     runs-on: ubuntu-latest
     steps:

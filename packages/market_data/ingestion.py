@@ -1,26 +1,58 @@
-from datetime import UTC,datetime,timedelta
-from .contracts import Candle,MarketDataRequest
-from .freshness import assess_freshness
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from .contracts import Candle, MarketDataRequest
 from .interface import MarketDataProvider
-from .completeness import filter_completed_candles,validate_ohlcv
+from .timeframes import timeframe_delta
+from .verification import MarketDataVerificationError, verify_series
+
 
 class MarketDataIngestor:
-    def __init__(self,providers:list[MarketDataProvider],freshness_seconds:int=120)->None:
-        if not providers: raise ValueError("At least one market-data provider is required")
-        self.providers=tuple(providers); self.freshness_seconds=freshness_seconds
+    def __init__(
+        self,
+        providers: list[MarketDataProvider],
+        freshness_seconds: int = 120,
+    ) -> None:
+        if not providers:
+            raise ValueError("At least one market-data provider is required")
+        if freshness_seconds < 0:
+            raise ValueError("freshness_seconds cannot be negative")
+        self.providers = tuple(providers)
+        self.freshness_seconds = freshness_seconds
 
-    async def candles(self,request:MarketDataRequest,*,interval:timedelta,now:datetime|None=None)->list[Candle]:
-        errors:list[str]=[]
-        reference=now or datetime.now(UTC)
+    async def candles(
+        self,
+        request: MarketDataRequest,
+        *,
+        interval: timedelta | None = None,
+        now: datetime | None = None,
+    ) -> list[Candle]:
+        reference = (now or datetime.now(UTC)).astimezone(UTC)
+        expected_interval = interval or timeframe_delta(request.timeframe or "1h")
+        request_id = uuid4()
+        errors: list[str] = []
+
         for provider in self.providers:
             try:
-                candles=await provider.candles(request)
-                valid=[]
-                for candle in candles:
-                    validate_ohlcv(candle)
-                    valid.append(assess_freshness(candle,self.freshness_seconds,reference))
-                completed=filter_completed_candles(valid,reference,interval)
-                if completed: return completed
-                errors.append(f"{provider.id}: no completed candles")
-            except Exception as exc: errors.append(f"{provider.id}: {exc}")
-        raise RuntimeError("No authoritative completed market data available: "+" | ".join(errors))
+                candles = await provider.candles(request)
+                stamped = [
+                    candle.model_copy(update={"request_id": request_id})
+                    for candle in candles
+                ]
+                verified = verify_series(
+                    stamped,
+                    now=reference,
+                    interval=expected_interval,
+                    max_age_seconds=self.freshness_seconds,
+                )
+                if verified:
+                    return verified
+                errors.append(f"{provider.id}: no verified candles")
+            except (MarketDataVerificationError, ValueError, RuntimeError) as exc:
+                errors.append(f"{provider.id}: {exc}")
+            except Exception as exc:
+                errors.append(f"{provider.id}: unexpected provider error: {exc}")
+
+        raise RuntimeError(
+            "No authoritative verified market data available: " + " | ".join(errors)
+        )
