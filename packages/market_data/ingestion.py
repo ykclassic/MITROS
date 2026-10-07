@@ -132,6 +132,8 @@ class MarketDataIngestor:
 
                 return verified
             except MarketDataVerificationError as exc:
+                if exc.quality is DataQuality.CONFLICTED:
+                    raise
                 errors.append(f"{provider.id} [{exc.quality}]: {exc}")
             except (ValueError, RuntimeError) as exc:
                 errors.append(f"{provider.id}: {exc}")
