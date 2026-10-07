@@ -1,9 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
-
-from packages.market_data.contracts import Candle, MarketDataRequest
+from packages.market_data.contracts import Candle
 from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
 from packages.market_data.symbols import SymbolMapper
 
