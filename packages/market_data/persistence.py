@@ -34,8 +34,7 @@ class PostgresVerifiedMarketDataRepository:
             raise VerifiedMarketDataPersistenceError("only VERIFIED candles may be persisted")
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection:
-            async with connection.cursor() as cursor:
+        ) as connection, connection.cursor() as cursor:
                 ids: list[UUID] = []
                 identity = None
                 for candle in candles:
@@ -126,8 +125,7 @@ class PostgresVerifiedMarketDataRepository:
     async def reconstruct_provenance(self, observation_id: UUID) -> ProvenanceRecord:
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection:
-            async with connection.cursor() as cursor:
+        ) as connection, connection.cursor() as cursor:
                 await cursor.execute(
                     """
                     select c.id, a.canonical_symbol as asset, v.name as venue,
