@@ -15,7 +15,6 @@ from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from contracts.intelligence import (
-    ContextKind,
     IntelligenceContext,
     IntelligenceSnapshot,
     LiquiditySnapshot,
