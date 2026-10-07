@@ -192,8 +192,10 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
             status, html = exc.code, exc.read().decode("utf-8", errors="replace")
         assert status in (200, 503)
         if status == 200:
+            # urllib follows the unauthenticated redirect to /login, so the final
+            # response must be the public auth page rather than the product page.
             assert "MITROS secure access" in html
-            assert marker in html
+            assert marker not in html
         else:
             assert "Authentication configuration is unavailable" in html
 
