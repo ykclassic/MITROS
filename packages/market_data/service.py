@@ -4,15 +4,26 @@ from uuid import uuid4
 from contracts.events import EventEnvelope, EventType
 
 from .checksum import canonical_checksum
-from .contracts import Candle, MarketDataRequest
+from .contracts import Candle, MarketDataRequest, ObservationManifestEntry
+from .guards import require_verified
 from .ingestion import MarketDataIngestor
 from .timeframes import timeframe_delta
+from .verification import build_manifest
 
 
 class VerifiedMarketDataBatch:
-    def __init__(self, *, candles: tuple[Candle, ...], event: EventEnvelope) -> None:
+    def __init__(
+        self,
+        *,
+        candles: tuple[Candle, ...],
+        event: EventEnvelope,
+        manifest: tuple[ObservationManifestEntry, ...],
+        batch_checksum: str,
+    ) -> None:
         self.candles = candles
         self.event = event
+        self.manifest = manifest
+        self.batch_checksum = batch_checksum
 
 
 class VerifiedMarketDataService:
@@ -35,25 +46,10 @@ class VerifiedMarketDataService:
             interval=timeframe_delta(timeframe),
             now=reference,
         )
-        if not result:
-            raise RuntimeError("Verified market-data service received no candles")
-
-        checksum = canonical_checksum(
-            [
-                {
-                    "asset": item.asset,
-                    "venue": item.venue,
-                    "timeframe": item.timeframe,
-                    "open_time": item.open_time.isoformat(),
-                    "close_time": item.close_time.isoformat(),
-                    "open": item.open,
-                    "high": item.high,
-                    "low": item.low,
-                    "close": item.close,
-                    "volume": item.volume,
-                }
-                for item in result
-            ]
+        verified = require_verified(result)
+        manifest = build_manifest(list(verified))
+        batch_checksum = canonical_checksum(
+            [item.model_dump(mode="json") for item in manifest]
         )
         event_id = uuid4()
         event = EventEnvelope(
@@ -69,10 +65,11 @@ class VerifiedMarketDataService:
                 "asset": request.asset,
                 "venue": request.venue,
                 "timeframe": timeframe,
-                "count": len(result),
-                "first_open_time": result[0].open_time.isoformat(),
-                "last_close_time": result[-1].close_time.isoformat(),
-                "checksum": checksum,
+                "count": len(verified),
+                "first_open_time": verified[0].open_time.isoformat(),
+                "last_close_time": verified[-1].close_time.isoformat(),
+                "checksum": batch_checksum,
+                "manifest_count": len(manifest),
             },
             provenance=[
                 {
@@ -83,7 +80,12 @@ class VerifiedMarketDataService:
                     "request_id": item.request_id,
                     "checksum": item.checksum,
                 }
-                for item in result
+                for item in verified
             ],
         )
-        return VerifiedMarketDataBatch(candles=tuple(result), event=event)
+        return VerifiedMarketDataBatch(
+            candles=verified,
+            event=event,
+            manifest=manifest,
+            batch_checksum=batch_checksum,
+        )
