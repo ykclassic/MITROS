@@ -18,7 +18,7 @@ def analyze_structure(candles: Sequence[Candle], pivot: int = 2) -> MarketStruct
     if len(highs) < 2 or len(lows) < 2:
         return MarketStructureSnapshot(kind=MarketStructureKind.UNKNOWN, bias="NEUTRAL",
             swing_highs=tuple(p for _, p in highs), swing_lows=tuple(p for _, p in lows),
-            bos=(), choch=())
+            bos=(), choch=(), trend_strength=Decimal("0"))
     hh = highs[-1][1] > highs[-2][1]
     hl = lows[-1][1] > lows[-2][1]
     lh = highs[-1][1] < highs[-2][1]
