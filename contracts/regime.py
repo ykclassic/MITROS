@@ -1,6 +1,6 @@
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -10,6 +10,9 @@ class MarketRegime(StrEnum):
     RANGE = "RANGE"
     HIGH_VOLATILITY = "HIGH_VOLATILITY"
     LOW_VOLATILITY = "LOW_VOLATILITY"
+    BREAKOUT = "BREAKOUT"
+    TRANSITION = "TRANSITION"
+    NEWS = "NEWS"
     UNKNOWN = "UNKNOWN"
 
 
@@ -20,6 +23,9 @@ class RegimeSnapshot(BaseModel):
     trend_strength: Decimal = Field(ge=0, le=1)
     volatility: Decimal = Field(ge=0)
     sample_size: int = Field(ge=0)
+    model_version: str = "deterministic-rules-2.0.0"
+    observation_window: tuple[datetime, datetime] | None = None
+    timestamp: datetime | None = None
     reasons: tuple[str, ...] = ()
 
 

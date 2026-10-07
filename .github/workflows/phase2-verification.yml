@@ -1,0 +1,34 @@
+name: MITROS Phase 2 Verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "contracts/**"
+      - "packages/intelligence/**"
+      - "packages/features/**"
+      - "packages/market_data/**"
+      - "tests/unit/test_market_intelligence_phase2.py"
+      - ".github/workflows/phase2-verification.yml"
+  push:
+    branches: [main, "phase/**"]
+    paths:
+      - "contracts/**"
+      - "packages/intelligence/**"
+      - "packages/features/**"
+      - "packages/market_data/**"
+      - "tests/unit/test_market_intelligence_phase2.py"
+      - ".github/workflows/phase2-verification.yml"
+
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check contracts packages tests/unit/test_market_intelligence_phase2.py
+      - run: mypy contracts packages
+      - run: pytest -q tests/unit/test_market_intelligence_phase2.py tests/unit/test_regime_statistics.py tests/unit/test_crt_strategy.py tests/unit/test_smc_strategy.py
