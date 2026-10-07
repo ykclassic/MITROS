@@ -44,8 +44,7 @@ class PostgresVerifiedMarketDataRepository:
 
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection:
-            async with connection.cursor() as cursor:
+        ) as connection, connection.cursor() as cursor:
                 ids: list[UUID] = []
                 identity: dict[str, UUID] | None = None
 
