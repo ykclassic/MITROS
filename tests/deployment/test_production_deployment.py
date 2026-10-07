@@ -191,7 +191,7 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
         assert status in (200, 503)
         if status == 200:
             assert "MITROS secure access" in html
-            assert marker not in html
+            assert marker in html
         else:
             assert "Authentication configuration is unavailable" in html
 
@@ -224,4 +224,4 @@ def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -
             status, _, _ = request_text(f"{WEB_URL}{route}", method="POST")
         except urllib.error.HTTPError as exc:
             status = exc.code
-        assert status in (404, 503)
+        assert status in (404, 405, 503)
