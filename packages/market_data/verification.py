@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
+from typing import Any
 from itertools import pairwise
 
 from .checksum import canonical_checksum
@@ -15,7 +16,7 @@ class MarketDataVerificationError(ValueError):
         self.quality = quality
 
 
-def _observation_payload(candle: Candle) -> dict[str, object]:
+def _observation_payload(candle: Candle) -> dict[str, Any]:
     return {
         "asset": candle.asset,
         "venue": candle.venue,
