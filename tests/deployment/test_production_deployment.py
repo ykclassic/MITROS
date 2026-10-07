@@ -42,6 +42,29 @@ def request_text(
         return response.status, response.read().decode("utf-8", errors="replace"), {key.lower(): value for key, value in response.headers.items()}
 
 
+def request_text_no_redirect(
+    url: str,
+    *,
+    method: str = "GET",
+    headers: dict[str, str] | None = None,
+) -> tuple[int, str, dict[str, str]]:
+    class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    request = urllib.request.Request(url, method=method, headers=headers or {})
+    opener = urllib.request.build_opener(NoRedirectHandler)
+    try:
+        with opener.open(request, timeout=20) as response:
+            return response.status, response.read().decode("utf-8", errors="replace"), {
+                key.lower(): value for key, value in response.headers.items()
+            }
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read().decode("utf-8", errors="replace"), {
+            key.lower(): value for key, value in exc.headers.items()
+        }
+
+
 def wait_for_web_login() -> None:
     deadline = time.monotonic() + 300
     last_error = ""
@@ -176,26 +199,21 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
     # Auth pages must not render the authenticated application navigation.
     assert '<nav class="nav">' not in login_html
 
-    for route, marker in (
-        ("/markets", "Markets"),
-        ("/intelligence", "Intelligence"),
-        ("/strategies", "Strategies"),
-        ("/signals", "Signals"),
-        ("/risk", "Risk"),
-        ("/research", "Research"),
-        ("/trading", "Trading"),
-        ("/operations", "Operations"),
+    for route in (
+        "/markets",
+        "/intelligence",
+        "/strategies",
+        "/signals",
+        "/risk",
+        "/research",
+        "/trading",
+        "/operations",
     ):
-        try:
-            status, html, _ = request_text(f"{WEB_URL}{route}")
-        except urllib.error.HTTPError as exc:
-            status, html = exc.code, exc.read().decode("utf-8", errors="replace")
-        assert status in (200, 503)
-        if status == 200:
-            # urllib follows the unauthenticated redirect to /login, so the final
-            # response must be the public auth page rather than the product page.
-            assert "MITROS secure access" in html
-            assert marker not in html
+        status, html, headers = request_text_no_redirect(f"{WEB_URL}{route}")
+        assert status in (307, 503)
+        if status == 307:
+            assert headers.get("location", "").startswith("/login?next=")
+            assert "MITROS secure access" not in html
         else:
             assert "Authentication configuration is unavailable" in html
 
