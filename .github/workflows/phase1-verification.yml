@@ -1,0 +1,31 @@
+name: MITROS Phase 1 Verification
+
+on:
+  push:
+    branches: [main, "phase/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  phase1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - name: Run Phase 1 verification suite
+        run: pytest -q tests/unit/test_market_data_phase1.py tests/unit/test_market_data_service_phase1.py tests/integration/test_phase1_fail_closed.py
+      - name: Run static checks
+        run: |
+          ruff check packages/market_data tests/unit/test_market_data_phase1.py tests/unit/test_market_data_service_phase1.py tests/integration/test_phase1_fail_closed.py
+          mypy packages/market_data contracts
+      - name: Verify migration contract
+        run: |
+          test -s supabase/migrations/20261007222136_0001_mitros_foundation.sql
+          test -s supabase/migrations/20261007222141_0002_execution_ledger.sql
+          test -s supabase/migrations/20261007222144_0003_auth_identity.sql
+          test -s supabase/migrations/20261007222149_0004_phase1_market_data.sql
+          test -s supabase/migrations/20261007230000_0005_phase1_completion.sql
