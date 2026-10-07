@@ -45,3 +45,25 @@ Phase 1 owns ingestion, normalization, validation, freshness, provider routing a
 - every accepted candle carries provenance;
 - accepted batches emit MarketDataUpdated;
 - downstream layers receive only VERIFIED candles.
+
+## Phase 1 completion hardening
+
+The Phase 1 exit gate is enforced by the verified market-data boundary:
+
+1. **Continuity and incomplete candles** — every adjacent candle must advance exactly one canonical timeframe; a missing interval is classified as `INCOMPLETE`. A candle whose close is in the future is also `INCOMPLETE`.
+2. **Operational quality state machine** — `DataQualityStateMachine` defines admissible transitions and deterministic classification for verified, stale, incomplete, conflicted, invalid, degraded and unavailable observations.
+3. **Provider authority** — `market_data_provider_routes` stores primary/secondary/emergency roles, priority, supported venues/timeframes, cross-validation and authority conditions. Runtime routing can load this policy directly from Postgres.
+4. **Canonical mappings** — production seed data establishes canonical `BTC/USD`, `ETH/USD`, and `SOL/USD` assets on the `spot` venue with explicit provider symbol mappings.
+5. **Canonical observation contracts** — Candle/Quote now carry explicit symbols and sequences; Trade, OrderBook, Funding and OpenInterest contracts are defined with provenance fields.
+6. **Observation checksums and manifests** — every verified candle receives an observation SHA-256 checksum. A batch manifest and batch checksum are emitted with `MarketDataUpdated`.
+7. **Durable persistence** — `PostgresVerifiedMarketDataRepository` persists only `VERIFIED` observations and the manifest, and can reconstruct the source/provider/request/checksum provenance for a stored observation.
+8. **Downstream fail-closed gate** — downstream consumers must receive `VERIFIED` observations with checksums; empty, degraded, stale, incomplete or conflicted data is blocked.
+9. **Verification workflow** — `.github/workflows/phase1-verification.yml` independently runs the Phase 1 unit/integration suite, strict lint/type checks and migration-contract checks.
+
+### Reconstruction target
+
+For any stored observation, MITROS can reconstruct:
+
+`observation → canonical asset/venue/timeframe → provider/provider version → provider symbol → observed_at/received_at → request_id → observation checksum → batch checksum → data quality`
+
+No intelligence or execution stage should bypass this boundary.
