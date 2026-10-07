@@ -6,6 +6,7 @@ import json
 
 from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot
 from packages.market_data.contracts import Candle, DataQuality
+
 from .crt import analyze_crt
 from .liquidity import analyze_liquidity
 from .quantitative import analyze_quantitative
@@ -46,20 +47,49 @@ class MarketIntelligenceEngine:
                 "confidence": Decimal("1"),
                 "reasons": regime.reasons + ("external_news_context_active",),
             })
-        payload = {
-            "asset": latest.asset, "venue": latest.venue, "symbol": latest.symbol,
-            "timeframe": latest.timeframe, "as_of": latest.close_time.isoformat(),
-            "observation_window": [ordered[0].open_time.isoformat(), latest.close_time.isoformat()],
-            "engine_version": ENGINE_VERSION, "configuration_version": CONFIGURATION_VERSION,
-            "input_checksums": sorted(c.checksum or "" for c in ordered),
+        input_checksums = tuple(sorted(c.checksum or "" for c in ordered))
+        checksum_payload = {
+            "asset": latest.asset,
+            "venue": latest.venue,
+            "symbol": latest.symbol,
+            "timeframe": latest.timeframe,
+            "as_of": latest.close_time.isoformat(),
+            "observation_window": [
+                ordered[0].open_time.isoformat(), latest.close_time.isoformat()
+            ],
+            "engine_version": ENGINE_VERSION,
+            "configuration_version": CONFIGURATION_VERSION,
+            "input_checksums": input_checksums,
             "quantitative": quantitative.model_dump(mode="json"),
             "structure": structure.model_dump(mode="json"),
             "liquidity": liquidity.model_dump(mode="json"),
-            "smc": smc.model_dump(mode="json"), "crt": crt.model_dump(mode="json"),
-            "regime": regime.model_dump(mode="json"), "context": intelligence_context.model_dump(mode="json"),
+            "smc": smc.model_dump(mode="json"),
+            "crt": crt.model_dump(mode="json"),
+            "regime": regime.model_dump(mode="json"),
+            "context": intelligence_context.model_dump(mode="json"),
         }
-        checksum = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        return IntelligenceSnapshot(**payload, snapshot_checksum=checksum)
+        snapshot_checksum = sha256(
+            json.dumps(checksum_payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return IntelligenceSnapshot(
+            asset=latest.asset,
+            venue=latest.venue,
+            symbol=latest.symbol,
+            timeframe=latest.timeframe,
+            as_of=latest.close_time,
+            observation_window=(ordered[0].open_time, latest.close_time),
+            engine_version=ENGINE_VERSION,
+            configuration_version=CONFIGURATION_VERSION,
+            input_checksums=input_checksums,
+            quantitative=quantitative,
+            structure=structure,
+            liquidity=liquidity,
+            smc=smc,
+            crt=crt,
+            regime=regime,
+            context=intelligence_context,
+            snapshot_checksum=snapshot_checksum,
+        )
 
     @staticmethod
     def _validate(candles: Sequence[Candle]) -> list[Candle]:
@@ -71,7 +101,10 @@ class MarketIntelligenceEngine:
         if any(c.checksum is None for c in ordered):
             raise ValueError("market intelligence requires checksummed observations")
         first = ordered[0]
-        if any(c.asset != first.asset or c.venue != first.venue or c.timeframe != first.timeframe for c in ordered):
+        if any(
+            c.asset != first.asset or c.venue != first.venue or c.timeframe != first.timeframe
+            for c in ordered
+        ):
             raise ValueError("all candles must share asset, venue and timeframe")
         for previous, current in pairwise(ordered):
             if current.open_time <= previous.open_time:
