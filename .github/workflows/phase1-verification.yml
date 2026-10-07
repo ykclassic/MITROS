@@ -29,3 +29,4 @@ jobs:
           test -s supabase/migrations/20261007222144_0003_auth_identity.sql
           test -s supabase/migrations/20261007222149_0004_phase1_market_data.sql
           test -s supabase/migrations/20261007230000_0005_phase1_completion.sql
+          test -s supabase/migrations/20261007230500_0006_phase1_provider_route_rls.sql
