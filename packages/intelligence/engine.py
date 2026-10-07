@@ -72,7 +72,7 @@ class MarketIntelligenceEngine:
         first = ordered[0]
         if any(c.asset != first.asset or c.venue != first.venue or c.timeframe != first.timeframe for c in ordered):
             raise ValueError("all candles must share asset, venue and timeframe")
-        for previous, current in zip(ordered, ordered[1:]):
+        for previous, current in pairwise(ordered):
             if current.open_time <= previous.open_time:
                 raise ValueError("market intelligence requires strictly increasing timestamps")
         return ordered
