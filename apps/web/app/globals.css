@@ -68,3 +68,11 @@ h2 { font-size:18px; margin:0 0 16px; }
 .auth-form input { width: 100%; padding: .75rem; border: 1px solid #d4d8df; border-radius: .5rem; background: white; }
 .auth-message { margin-top: 1rem; }
 .link-button { margin-top: 1rem; border: 0; background: transparent; padding: 0; text-decoration: underline; cursor: pointer; }
+
+.evidence-panel { margin-top:16px; border-top:1px solid #1b2a3c; }
+.evidence-panel summary { cursor:pointer; padding:12px 0; color:#9fb0c3; font-size:13px; }
+.evidence-body { display:grid; gap:8px; padding:0 0 12px; }
+.workspace-controls { display:flex; justify-content:space-between; align-items:end; gap:24px; }
+.workspace-controls h2 { margin:6px 0; }
+code { overflow-wrap:anywhere; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+@media (max-width:700px) { .workspace-controls { align-items:stretch; flex-direction:column; } }
