@@ -17,7 +17,7 @@ def _close_time(open_time: datetime, timeframe: str) -> datetime:
 def _observed_at(raw: object, fallback: datetime) -> datetime:
     if not raw:
         return fallback
-    value = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    value = datetime.fromisoformat(str(raw))
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
