@@ -14,7 +14,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
-from contracts.intelligence import IntelligenceSnapshot
+from contracts.intelligence import (
+    ContextKind,
+    IntelligenceContext,
+    IntelligenceSnapshot,
+    LiquiditySnapshot,
+    MarketStructureSnapshot,
+    QuantitativeMetrics,
+    CRTSnapshot,
+    SMCContextSnapshot,
+)
 from packages.api.auth import AuthenticatedUser, require_user
 
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
@@ -103,13 +112,13 @@ class IntelligenceSnapshotResponse(BaseModel):
     latest_close: str
     feature_set_version: str
     features: dict[str, str]
-    quantitative: object
-    structure: object
-    liquidity: object
-    smc_context: object
-    crt_analysis: object
+    quantitative: QuantitativeMetrics
+    structure: MarketStructureSnapshot
+    liquidity: LiquiditySnapshot
+    smc_context: SMCContextSnapshot
+    crt_analysis: CRTSnapshot
     regime: RegimeSnapshot
-    context: object
+    context: IntelligenceContext
     strategy_votes: tuple[StrategyVote, ...]
     consensus: StrategyConsensus
     mtf: MTFConsensus
