@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 import psycopg
 from psycopg.rows import dict_row
@@ -47,8 +47,7 @@ class PostgresProviderConfiguration:
     async def routes(self, *, asset: str, venue: str, timeframe: str) -> tuple[ProviderRoute, ...]:
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection:
-            async with connection.cursor() as cursor:
+        ) as connection, connection.cursor() as cursor:
                 await cursor.execute(
                     """
                     select p.provider_key, p.provider_version,
