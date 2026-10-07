@@ -17,8 +17,10 @@ The production E2E suite in `tests/deployment/test_production_deployment.py` ver
 4. CORS preflight for the quote endpoint succeeds.
 5. All three configured providers (Twelve Data, Finnhub, Alpha Vantage) are present at runtime without exposing whether the credential value itself is secret. Provider availability is recorded by the same endpoint; transient provider-side rate limits do not make credential configuration appear missing.
 6. BTC/USD and ETH/USD return a positive price, provider provenance, provider quote timestamp, receipt timestamp, and `VERIFIED` quality.
-7. The Vercel HTML does not expose provider credential variable names or common credential material.
-8. The production URL contract remains explicit, so a deployment URL change forces a test update.
+7. When the optional `MITROS_PRODUCTION_ACCESS_TOKEN` GitHub Actions secret is configured, authenticated Phase 2 E2E verifies BTC/USD, ETH/USD and SOL/USD across 15m, 1h and 4h. Each snapshot must be `VERIFIED` and expose snapshot checksum, input checksums, engine/configuration versions, observation window, generated timestamp and provenance.
+8. Trade probability is not exposed by the Phase 2 snapshot contract until statistically calibrated resolved outcomes exist.
+9. The Vercel HTML does not expose provider credential variable names or common credential material.
+10. The production URL contract remains explicit, so a deployment URL change forces a test update.
 
 The market UI fetches BTC/USD and ETH/USD independently. One asset failure no longer suppresses the other asset's result, and each failed row reports its own sanitized HTTP/API failure state.
 
