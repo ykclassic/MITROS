@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import ClassVar
 from datetime import UTC, datetime, timedelta
 
 from .contracts import Candle, DataQuality
@@ -13,7 +14,7 @@ class QualityAssessment:
 class DataQualityStateMachine:
     """Deterministic, fail-closed quality classification."""
 
-    _allowed: dict[DataQuality, frozenset[DataQuality]] = {
+    _allowed: ClassVar[dict[DataQuality, frozenset[DataQuality]]] = {
         DataQuality.UNAVAILABLE: frozenset({DataQuality.UNAVAILABLE, DataQuality.DEGRADED}),
         DataQuality.DEGRADED: frozenset(
             {DataQuality.DEGRADED, DataQuality.VERIFIED, DataQuality.STALE, DataQuality.CONFLICTED}
