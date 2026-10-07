@@ -218,6 +218,36 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
             assert "Authentication configuration is unavailable" in html
 
 
+def test_authenticated_production_phase2_snapshots() -> None:
+    access_token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
+    if not access_token:
+        pytest.skip("MITROS_PRODUCTION_ACCESS_TOKEN is not configured for authenticated production E2E")
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    for asset in ("BTC/USD", "ETH/USD", "SOL/USD"):
+        for timeframe in ("15m", "1h", "4h"):
+            encoded_asset = asset.replace("/", "%2F")
+            status, body, _ = request_json(
+                f"{API_URL}/api/v1/intelligence/snapshot"
+                f"?asset={encoded_asset}&venue=spot&timeframe={timeframe}",
+                headers=headers,
+            )
+            assert status == 200
+            assert body["asset"] == asset
+            assert body["venue"] == "spot"
+            assert body["timeframe"] == timeframe
+            assert body["provenance"]["data_quality"] == "VERIFIED"
+            assert body["snapshot_checksum"]
+            assert body["input_checksums"]
+            assert body["engine_version"]
+            assert body["configuration_version"]
+            assert body["observation_window"]
+            assert body["generated_at"]
+            assert body["provenance"]["batch_checksum"]
+            assert body["provenance"]["observations"]
+            assert "trade_probability" not in body
+
+
 def test_production_web_protected_api_routes_require_authentication() -> None:
     wait_for_web_login()
     for route in (
