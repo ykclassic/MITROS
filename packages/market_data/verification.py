@@ -1,5 +1,6 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from itertools import pairwise
 
 from .checksum import canonical_checksum
 from .contracts import Candle, DataQuality, ObservationManifestEntry
@@ -82,7 +83,7 @@ def _deduplicate(candles: list[Candle]) -> list[Candle]:
 
 
 def _validate_continuity(candles: list[Candle], interval: timedelta) -> None:
-    for previous, current in zip(candles, candles[1:]):
+    for previous, current in pairwise(candles):
         expected = previous.open_time + interval
         if current.open_time != expected:
             missing = int((current.open_time - expected).total_seconds() // interval.total_seconds())
