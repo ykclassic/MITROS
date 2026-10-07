@@ -53,6 +53,7 @@ class TwelveDataProvider(HTTPProviderBase, MarketDataProvider):
             Candle(
                 asset=request.asset,
                 venue=request.venue,
+                symbol=request.asset,
                 timeframe=timeframe,
                 open_time=_observed_at(x["datetime"], received),
                 close_time=_close_time(_observed_at(x["datetime"], received), timeframe),
@@ -74,7 +75,7 @@ class TwelveDataProvider(HTTPProviderBase, MarketDataProvider):
         received = datetime.now(UTC)
         d = await self._get("/quote", {"symbol": m.provider_symbol, "apikey": self.api_key})
         observed = _observed_at(d.get("datetime"), received)
-        return Quote(asset=request.asset, venue=request.venue, last=Decimal(str(d["close"])),
+        return Quote(asset=request.asset, venue=request.venue, symbol=request.asset, last=Decimal(str(d["close"])),
                      provider=self.id, provider_version=self.version, observed_at=observed,
                      received_at=received)
 
@@ -118,6 +119,7 @@ class FinnhubProvider(HTTPProviderBase, MarketDataProvider):
             Candle(
                 asset=request.asset,
                 venue=request.venue,
+                symbol=request.asset,
                 timeframe=timeframe,
                 open_time=utc_from_epoch(int(ts)),
                 close_time=_close_time(utc_from_epoch(int(ts)), timeframe),
@@ -142,7 +144,7 @@ class FinnhubProvider(HTTPProviderBase, MarketDataProvider):
         received = datetime.now(UTC)
         d = await self._get("/v1/quote", {"symbol": m.provider_symbol, "token": self.api_key})
         observed = utc_from_epoch(int(d["t"])) if d.get("t") else received
-        return Quote(asset=request.asset, venue=request.venue, last=Decimal(str(d["c"])),
+        return Quote(asset=request.asset, venue=request.venue, symbol=request.asset, last=Decimal(str(d["c"])),
                      provider=self.id, provider_version=self.version, observed_at=observed,
                      received_at=received)
 
@@ -192,6 +194,7 @@ class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
             Candle(
                 asset=request.asset,
                 venue=request.venue,
+                symbol=request.asset,
                 timeframe=timeframe,
                 open_time=_observed_at(ts, received),
                 close_time=_close_time(_observed_at(ts, received), timeframe),
@@ -226,7 +229,7 @@ class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
                 raise RuntimeError("Alpha Vantage returned no global quote price")
             observed = received
             price = Decimal(str(q["05. price"]))
-        return Quote(asset=request.asset, venue=request.venue, last=price, provider=self.id,
+        return Quote(asset=request.asset, venue=request.venue, symbol=request.asset, last=price, provider=self.id,
                      provider_version=self.version, observed_at=observed, received_at=received)
 
     async def health(self) -> ProviderHealth:
