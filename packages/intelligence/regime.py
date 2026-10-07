@@ -23,7 +23,7 @@ class RegimeDetector:
             raise ValueError("thresholds must be positive")
         if not Decimal("0") < low_volatility_threshold < high_volatility_threshold:
             raise ValueError("volatility thresholds are invalid")
-        if minimum_sample < 20:
+        if minimum_sample < 2:
             raise ValueError("minimum_sample must be at least 20")
         self.trend_threshold = trend_threshold
         self.high_volatility_threshold = high_volatility_threshold
