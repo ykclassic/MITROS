@@ -4,7 +4,8 @@ from hashlib import sha256
 from itertools import pairwise
 import json
 
-from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot\nfrom contracts.regime import MarketRegime
+from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot
+from contracts.regime import MarketRegime
 from packages.market_data.contracts import Candle, DataQuality
 
 from .crt import analyze_crt
