@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from decimal import Decimal
 from hashlib import sha256
+from itertools import pairwise
 import json
 
 from contracts.intelligence import IntelligenceContext, IntelligenceSnapshot
