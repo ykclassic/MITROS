@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 import psycopg
 from psycopg.rows import dict_row
@@ -47,7 +47,8 @@ class PostgresProviderConfiguration:
     async def routes(self, *, asset: str, venue: str, timeframe: str) -> tuple[ProviderRoute, ...]:
         async with await psycopg.AsyncConnection.connect(
             self.database_url, row_factory=dict_row
-        ) as connection, connection.cursor() as cursor:
+        ) as connection:
+            async with connection.cursor() as cursor:
                 await cursor.execute(
                     """
                     select p.provider_key, p.provider_version,
@@ -69,12 +70,12 @@ class PostgresProviderConfiguration:
                 rows = await cursor.fetchall()
         return tuple(
             ProviderRoute(
-                provider_key=row["provider_key"],
-                provider_version=row["provider_version"],
-                priority=row["priority"],
-                role=row["role"],
-                active=row["active"],
-                cross_validate=row["cross_validate"],
+                provider_key=str(row["provider_key"]),
+                provider_version=str(row["provider_version"]),
+                priority=int(row["priority"]),
+                role=str(row["role"]),
+                active=bool(row["active"]),
+                cross_validate=bool(row["cross_validate"]),
                 supported_timeframes=tuple(row["supported_timeframes"] or ()),
                 supported_venues=tuple(row["supported_venues"] or ()),
             )
