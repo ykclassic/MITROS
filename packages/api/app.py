@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
+from contracts.intelligence import IntelligenceSnapshot
 from packages.api.auth import AuthenticatedUser, require_user
 
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
@@ -26,9 +27,13 @@ from contracts.domain import StrategyVote
 from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
 from packages.features.engine import FeatureEngine
 from packages.intelligence.regime import RegimeDetector
+from packages.intelligence.engine import MarketIntelligenceEngine
 from packages.market_data.cache import AsyncTTLCache
 from packages.market_data.config import MarketDataSettings
-from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, Quote
+from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, Quote, DataQuality
+from packages.market_data.ingestion import MarketDataIngestor
+from packages.market_data.service import VerifiedMarketDataService
+from packages.market_data.routing import PostgresProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 from packages.market_data.interface import MarketDataProvider
 from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
@@ -71,21 +76,48 @@ class ReadinessResponse(BaseModel):
     checks: dict[str, str]
 
 
+class ObservationProvenanceResponse(BaseModel):
+    provider: str
+    provider_version: str | None
+    request_id: str | None
+    observation_checksum: str
+    observed_at: datetime
+    received_at: datetime
+
+
+class IntelligenceProvenanceResponse(BaseModel):
+    data_quality: DataQuality
+    batch_checksum: str
+    observation_count: int
+    observations: tuple[ObservationProvenanceResponse, ...]
+
+
 class IntelligenceSnapshotResponse(BaseModel):
     asset: str
     venue: str
+    symbol: str
     timeframe: str
+    as_of: datetime
+    observation_window: tuple[datetime, datetime]
+    engine_version: str
+    configuration_version: str
+    input_checksums: tuple[str, ...]
+    snapshot_checksum: str
     candle_count: int
     latest_close: str
     feature_set_version: str
     features: dict[str, str]
+    quantitative: object
+    structure: object
+    liquidity: object
+    smc_context: object
+    crt_analysis: object
     regime: RegimeSnapshot
-    statistics: StatisticalSnapshot
-    smc: SMCAnalysis
-    crt: CRTAnalysis
+    context: object
     strategy_votes: tuple[StrategyVote, ...]
     consensus: StrategyConsensus
     mtf: MTFConsensus
+    provenance: IntelligenceProvenanceResponse
     generated_at: datetime
 
 
@@ -164,15 +196,44 @@ def _artifact_checksum(candles: list[Candle]) -> str:
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+async def build_verified_service() -> VerifiedMarketDataService:
+    settings = get_settings()
+    database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+    if not database_url:
+        raise RuntimeError("MITROS_DATABASE_URL is required for verified intelligence")
+
+    symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
+    providers: list[MarketDataProvider] = []
+    if settings.twelvedata_api_key:
+        providers.append(TwelveDataProvider(api_key=settings.twelvedata_api_key, symbols=symbols))
+    if settings.finnhub_api_key:
+        providers.append(FinnhubProvider(api_key=settings.finnhub_api_key, symbols=symbols))
+    if settings.alphavantage_api_key:
+        providers.append(AlphaVantageProvider(api_key=settings.alphavantage_api_key, symbols=symbols))
+    if not providers:
+        raise RuntimeError("No market-data provider credentials configured")
+
+    configuration = PostgresProviderConfiguration(database_url)
+    ingestor = MarketDataIngestor(
+        providers,
+        freshness_seconds=settings.freshness_seconds,
+        configuration=configuration,
+    )
+    return VerifiedMarketDataService(ingestor, producer_version="0.6.0")
+
+
 async def build_intelligence(asset: str, venue: str, timeframe: str) -> IntelligenceSnapshotResponse:
-    candles = await load_candles(asset, venue, timeframe, 200)
-    features: FeatureSnapshot = FeatureEngine().snapshot(candles)
-    regime: RegimeSnapshot = RegimeDetector().classify(candles)
+    service = await build_verified_service()
+    batch = await service.candles(
+        MarketDataRequest(asset=asset, venue=venue, timeframe=timeframe, limit=200)
+    )
+    candles = batch.candles
+    snapshot: IntelligenceSnapshot = MarketIntelligenceEngine().snapshot(candles)
+
+    features = FeatureEngine().snapshot(candles)
     context = StrategyContext(candles=candles, features=features)
     smc_strategy = SMCStrategy()
     crt_strategy = CRTStrategy()
-    smc = smc_strategy.analyze(candles)
-    crt = crt_strategy.analyze(candles)
     votes = (smc_strategy.evaluate(context), crt_strategy.evaluate(context))
     consensus_engine = StrategyConsensusEngine()
     consensus = consensus_engine.combine_strategies(votes)
@@ -180,10 +241,15 @@ async def build_intelligence(asset: str, venue: str, timeframe: str) -> Intellig
     mtf_votes: dict[str, tuple[StrategyVote, ...]] = {}
     for candidate in ("15m", "1h", "4h"):
         try:
-            candidate_candles = await load_candles(asset, venue, candidate, 80)
+            candidate_batch = await service.candles(
+                MarketDataRequest(asset=asset, venue=venue, timeframe=candidate, limit=80)
+            )
+            candidate_candles = candidate_batch.candles
             if len(candidate_candles) >= 7:
                 candidate_features = FeatureEngine().snapshot(candidate_candles)
-                candidate_context = StrategyContext(candles=candidate_candles, features=candidate_features)
+                candidate_context = StrategyContext(
+                    candles=candidate_candles, features=candidate_features
+                )
                 mtf_votes[candidate] = (
                     smc_strategy.evaluate(candidate_context),
                     crt_strategy.evaluate(candidate_context),
@@ -193,21 +259,50 @@ async def build_intelligence(asset: str, venue: str, timeframe: str) -> Intellig
     if not mtf_votes:
         mtf_votes = {timeframe: votes}
     mtf = consensus_engine.combine_mtf(mtf_votes)
+
+    provenance = IntelligenceProvenanceResponse(
+        data_quality=DataQuality.VERIFIED,
+        batch_checksum=batch.batch_checksum,
+        observation_count=len(candles),
+        observations=tuple(
+            ObservationProvenanceResponse(
+                provider=item.provider,
+                provider_version=item.provider_version,
+                request_id=str(item.request_id) if item.request_id else None,
+                observation_checksum=item.checksum or "",
+                observed_at=item.observed_at,
+                received_at=item.received_at,
+            )
+            for item in candles
+        ),
+    )
+
     return IntelligenceSnapshotResponse(
-        asset=asset,
-        venue=venue,
-        timeframe=timeframe,
+        asset=snapshot.asset,
+        venue=snapshot.venue,
+        symbol=snapshot.symbol,
+        timeframe=snapshot.timeframe,
+        as_of=snapshot.as_of,
+        observation_window=snapshot.observation_window,
+        engine_version=snapshot.engine_version,
+        configuration_version=snapshot.configuration_version,
+        input_checksums=snapshot.input_checksums,
+        snapshot_checksum=snapshot.snapshot_checksum,
         candle_count=len(candles),
-        latest_close=str(max(candles, key=lambda c: c.close_time).close),
+        latest_close=str(candles[-1].close),
         feature_set_version=features.feature_set_version,
         features={key: str(value) for key, value in features.values.items()},
-        regime=regime,
-        statistics=_statistical_snapshot(candles),
-        smc=smc,
-        crt=crt,
+        quantitative=snapshot.quantitative,
+        structure=snapshot.structure,
+        liquidity=snapshot.liquidity,
+        smc_context=snapshot.smc,
+        crt_analysis=snapshot.crt,
+        regime=snapshot.regime,
+        context=snapshot.context,
         strategy_votes=votes,
         consensus=consensus,
         mtf=mtf,
+        provenance=provenance,
         generated_at=datetime.now(UTC),
     )
 
