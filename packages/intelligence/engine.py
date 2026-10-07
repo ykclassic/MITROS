@@ -58,7 +58,7 @@ class MarketIntelligenceEngine:
             "regime": regime.model_dump(mode="json"), "context": intelligence_context.model_dump(mode="json"),
         }
         checksum = sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        return IntelligenceSnapshot(**payload, regime=regime, snapshot_checksum=checksum)
+        return IntelligenceSnapshot(**payload, snapshot_checksum=checksum)
 
     @staticmethod
     def _validate(candles: Sequence[Candle]) -> list[Candle]:
