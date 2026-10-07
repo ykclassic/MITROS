@@ -173,6 +173,8 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
     status, login_html, _ = request_text(f"{WEB_URL}/login")
     assert status == 200
     assert "MITROS secure access" in login_html
+    for marker in ("Overview", "Markets", "Intelligence", "Strategies", "Signals", "Risk", "Research", "Trading", "Operations"):
+        assert marker not in login_html
 
     for route, marker in (
         ("/markets", "Markets"),
