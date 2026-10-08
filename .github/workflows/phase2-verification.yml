@@ -23,6 +23,24 @@ on:
       - ".github/workflows/phase2-verification.yml"
 
 jobs:
+  production-matrix:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "pytest>=8.3,<9"
+      - name: Verify production BTC/ETH market data + intelligence matrix
+        env:
+          MITROS_PRODUCTION_API_URL: https://mitros.onrender.com
+          MITROS_PRODUCTION_WEB_URL: https://mitros.vercel.app
+          MITROS_PRODUCTION_VERCEL_ORIGIN: https://mitros.vercel.app
+          MITROS_PRODUCTION_ACCESS_TOKEN: ${{ secrets.MITROS_PRODUCTION_ACCESS_TOKEN }}
+          MITROS_RUN_DEPLOYMENT_E2E: "true"
+        run: python -m pytest -q tests/deployment/test_production_deployment.py -k authenticated_production_market_data_and_intelligence_matrix
+
   verification:
     runs-on: ubuntu-latest
     steps:
