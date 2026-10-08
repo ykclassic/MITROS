@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from functools import lru_cache
@@ -34,7 +35,7 @@ from packages.features.engine import FeatureEngine
 from packages.intelligence.engine import MarketIntelligenceEngine
 from packages.market_data.cache import AsyncTTLCache
 from packages.market_data.config import MarketDataSettings
-from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, Quote, DataQuality
+from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, DataQuality
 from packages.market_data.ingestion import MarketDataIngestor
 from packages.market_data.service import VerifiedMarketDataService
 from packages.market_data.routing import PostgresProviderConfiguration
@@ -54,6 +55,7 @@ from packages.strategies.smc import SMCStrategy
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
+logger = logging.getLogger("mitros.api")
 
 
 class ApiHealth(BaseModel):
@@ -198,6 +200,25 @@ def _artifact_checksum(candles: list[Candle]) -> str:
         for candle in sorted(candles, key=lambda c: c.open_time)
     ]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _market_data_failure_category(exc: Exception) -> str:
+    message = str(exc).lower()
+    if "mitros_database_url" in message:
+        return "database_configuration"
+    if "no market-data provider credentials configured" in message:
+        return "provider_credentials"
+    if "no active authoritative provider route" in message:
+        return "provider_route"
+    if "symbol" in message and ("mapping" in message or "mapped" in message):
+        return "provider_symbol_mapping"
+    if any(token in message for token in ("401", "403", "api key", "apikey", "rate limit", "quota")):
+        return "provider_api_rejection"
+    if any(token in message for token in ("stale", "incomplete", "future", "continuity gap", "conflict")):
+        return "verification_gate"
+    if "no authoritative verified market data" in message or "no verified candles" in message:
+        return "verified_data_unavailable"
+    return "market_data_unavailable"
 
 
 async def build_verified_service() -> VerifiedMarketDataService:
@@ -403,14 +424,28 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/market/quote", response_model=MarketQuoteResponse)
     async def quote(user: CurrentUser, asset: str = Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$"), venue: str = Query(default="spot", min_length=1, max_length=32)) -> MarketQuoteResponse:
         try:
-            result: Quote = await build_router().quote(MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=1))
+            # Quotes are derived from the same verified candle boundary used by Intelligence.
+            # This keeps provider authority, symbol mappings, freshness and verification identical.
+            batch = await (await build_verified_service()).candles(
+                MarketDataRequest(asset=asset, venue=venue, timeframe="1h", limit=2)
+            )
         except (RuntimeError, ValueError) as exc:
-            raise HTTPException(status_code=503, detail="Market data unavailable") from exc
-        if result.last is None:
-            raise HTTPException(status_code=503, detail="Market data unavailable")
-        return MarketQuoteResponse(asset=result.asset, venue=result.venue, price=str(result.last),
-            provider=result.provider, provider_version=result.provider_version, observed_at=result.observed_at,
-            received_at=result.received_at, quality=result.quality.value)
+            logger.error(
+                "market_quote_unavailable category=%s asset=%s venue=%s",
+                _market_data_failure_category(exc), asset, venue,
+            )
+            raise HTTPException(status_code=503, detail="Verified market data unavailable") from exc
+        latest = batch.candles[-1]
+        return MarketQuoteResponse(
+            asset=latest.asset,
+            venue=latest.venue,
+            price=str(latest.close),
+            provider=latest.provider,
+            provider_version=latest.provider_version,
+            observed_at=latest.observed_at,
+            received_at=latest.received_at,
+            quality=latest.quality.value,
+        )
 
     @app.get("/api/v1/market/health", response_model=list[ProviderHealth])
     async def market_health(user: CurrentUser) -> list[ProviderHealth]:
@@ -487,6 +522,10 @@ def create_app() -> FastAPI:
         try:
             return await build_intelligence(asset, venue, timeframe)
         except (RuntimeError, ValueError) as exc:
+            logger.error(
+                "intelligence_snapshot_unavailable category=%s asset=%s venue=%s timeframe=%s",
+                _market_data_failure_category(exc), asset, venue, timeframe,
+            )
             raise HTTPException(status_code=503, detail="Verified intelligence is unavailable") from exc
 
     @app.get("/api/v1/research/report", response_model=ResearchReport)
