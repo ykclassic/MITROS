@@ -38,7 +38,7 @@ from packages.market_data.config import MarketDataSettings
 from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, DataQuality
 from packages.market_data.ingestion import MarketDataIngestor
 from packages.market_data.service import VerifiedMarketDataService
-from packages.market_data.routing import PostgresProviderConfiguration, SupabaseRestProviderConfiguration
+from packages.market_data.routing import PostgresProviderConfiguration, ProviderConfiguration, SupabaseRestProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 from packages.market_data.interface import MarketDataProvider
 from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
@@ -242,6 +242,7 @@ async def build_verified_service() -> VerifiedMarketDataService:
 
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    configuration: ProviderConfiguration
     if supabase_url and service_role_key:
         configuration = SupabaseRestProviderConfiguration(supabase_url, service_role_key)
     else:
@@ -417,7 +418,7 @@ def create_app() -> FastAPI:
         service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
         try:
             if supabase_url and service_role_key:
-                configuration = SupabaseRestProviderConfiguration(supabase_url, service_role_key)
+                configuration: ProviderConfiguration = SupabaseRestProviderConfiguration(supabase_url, service_role_key)
                 configuration_source = "supabase_data_api"
             elif database_configured:
                 configuration = PostgresProviderConfiguration(os.environ["MITROS_DATABASE_URL"])
