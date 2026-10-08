@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, cast
 
 import httpx
 import psycopg
@@ -57,7 +57,7 @@ class SupabaseRestProviderConfiguration:
             payload = response.json()
         if not isinstance(payload, list):
             raise TypeError(f"Supabase returned a non-list payload for {table}")
-        return [item for item in payload if isinstance(item, dict)]
+        return [cast(dict[str, object], item) for item in payload if isinstance(item, dict)]
 
     async def routes(self, *, asset: str, venue: str, timeframe: str) -> tuple[ProviderRoute, ...]:
         providers = await self._get(
@@ -87,8 +87,18 @@ class SupabaseRestProviderConfiguration:
             provider = provider_by_id.get(provider_id)
             if provider is None or provider_id not in mapped_provider_ids:
                 continue
-            supported_timeframes = tuple(str(item) for item in (row.get("supported_timeframes") or []))
-            supported_venues = tuple(str(item) for item in (row.get("supported_venues") or []))
+            raw_timeframes = row.get("supported_timeframes")
+            raw_venues = row.get("supported_venues")
+            supported_timeframes = (
+                tuple(str(item) for item in raw_timeframes)
+                if isinstance(raw_timeframes, list)
+                else ()
+            )
+            supported_venues = (
+                tuple(str(item) for item in raw_venues)
+                if isinstance(raw_venues, list)
+                else ()
+            )
             if supported_timeframes and timeframe not in supported_timeframes:
                 continue
             if supported_venues and venue not in supported_venues:
@@ -97,7 +107,7 @@ class SupabaseRestProviderConfiguration:
                 ProviderRoute(
                     provider_key=str(provider["provider_key"]),
                     provider_version=str(provider["provider_version"]),
-                    priority=int(row["priority"]),
+                    priority=int(row["priority"]) if isinstance(row.get("priority"), (int, str)) else 0,
                     role=str(row["role"]),
                     active=bool(row["active"]),
                     cross_validate=bool(row["cross_validate"]),
