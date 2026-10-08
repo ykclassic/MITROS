@@ -49,10 +49,41 @@ def test_future_closed_boundary_is_incomplete() -> None:
     assert error.value.quality is DataQuality.INCOMPLETE
 
 
+def test_future_opening_candle_is_invalid() -> None:
+    with pytest.raises(MarketDataVerificationError) as error:
+        verify_series(
+            [make_candle(
+                open_time=NOW + timedelta(minutes=1),
+                close_time=NOW + timedelta(hours=1, minutes=1),
+            )],
+            now=NOW,
+            interval=timedelta(hours=1),
+            max_age_seconds=120,
+        )
+    assert error.value.quality is DataQuality.INVALID
+
+
+def test_current_forming_candle_is_excluded_from_verified_series() -> None:
+    closed = make_candle(close_time=NOW - timedelta(hours=1))
+    forming = make_candle(
+        open_time=NOW,
+        close_time=NOW + timedelta(hours=1),
+    )
+    candles = verify_series(
+        [closed, forming],
+        now=NOW,
+        interval=timedelta(hours=1),
+        max_age_seconds=120,
+    )
+    assert len(candles) == 1
+    assert candles[0].close_time == closed.close_time
+    assert candles[0].quality is DataQuality.VERIFIED
+
+
 def test_stale_candle_fails_closed() -> None:
     with pytest.raises(MarketDataVerificationError) as error:
         verify_series(
-            [make_candle(121)],
+            [make_candle(63 * 60)],
             now=NOW,
             interval=timedelta(hours=1),
             max_age_seconds=120,
@@ -111,7 +142,7 @@ class Provider:
 
 @pytest.mark.asyncio
 async def test_ingestor_fails_over_when_primary_data_is_invalid() -> None:
-    primary = Provider([make_candle(121)])
+    primary = Provider([make_candle(63 * 60)])
     secondary = Provider([make_candle()])
     result = await MarketDataIngestor([primary, secondary]).candles(
         MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="1h"),
