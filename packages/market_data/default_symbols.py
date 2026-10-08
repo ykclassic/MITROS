@@ -14,4 +14,19 @@ DEFAULT_SYMBOL_MAPPINGS: dict[str, dict[str, str]] = {
         "ETH/USD": "ETH",
         "SOL/USD": "SOL",
     },
+    "coinbase": {
+        "BTC/USD": "BTC-USD",
+        "ETH/USD": "ETH-USD",
+        "SOL/USD": "SOL-USD",
+    },
+    "kraken": {
+        "BTC/USD": "BTC/USD",
+        "ETH/USD": "ETH/USD",
+        "SOL/USD": "SOL/USD",
+    },
+    "coingecko": {
+        "BTC/USD": "bitcoin",
+        "ETH/USD": "ethereum",
+        "SOL/USD": "solana",
+    },
 }

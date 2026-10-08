@@ -9,6 +9,8 @@ on:
       - "packages/features/**"
       - "packages/market_data/**"
       - "tests/unit/test_market_intelligence_phase2.py"
+      - "tests/unit/test_provider_replacement.py"
+      - "tests/integration/test_provider_replacement_integration.py"
       - ".github/workflows/phase2-verification.yml"
   push:
     branches: [main, "phase/**"]
@@ -31,4 +33,4 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check contracts packages tests/unit/test_market_intelligence_phase2.py
       - run: mypy contracts packages
-      - run: pytest -q tests/unit/test_market_intelligence_phase2.py tests/unit/test_regime_statistics.py tests/unit/test_crt_strategy.py tests/unit/test_smc_strategy.py
+      - run: pytest -q tests/unit/test_market_intelligence_phase2.py tests/unit/test_regime_statistics.py tests/unit/test_crt_strategy.py tests/unit/test_smc_strategy.py tests/unit/test_provider_replacement.py tests/integration/test_provider_replacement_integration.py

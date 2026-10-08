@@ -41,7 +41,7 @@ from packages.market_data.service import VerifiedMarketDataService
 from packages.market_data.routing import PostgresProviderConfiguration, ProviderConfiguration, SupabaseRestProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 from packages.market_data.interface import MarketDataProvider
-from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
+from packages.market_data.providers import CoinbaseProvider, CoinGeckoProvider, KrakenProvider
 from packages.market_data.router import ProviderRouter
 from packages.market_data.symbols import SymbolMapper
 from packages.operations.config import ProductionConfig
@@ -138,24 +138,24 @@ candle_cache: AsyncTTLCache[list[Candle]] = AsyncTTLCache(ttl_seconds=60.0, max_
 def build_router() -> ProviderRouter:
     settings = get_settings()
     symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
-    providers: list[MarketDataProvider] = []
-    if settings.twelvedata_api_key:
-        providers.append(TwelveDataProvider(api_key=settings.twelvedata_api_key, symbols=symbols))
-    if settings.finnhub_api_key:
-        providers.append(FinnhubProvider(api_key=settings.finnhub_api_key, symbols=symbols))
-    if settings.alphavantage_api_key:
-        providers.append(AlphaVantageProvider(api_key=settings.alphavantage_api_key, symbols=symbols))
-    if not providers:
-        raise RuntimeError("No market-data provider credentials configured")
+    providers: list[MarketDataProvider] = [
+        KrakenProvider(symbols=symbols),
+        CoinbaseProvider(symbols=symbols),
+    ]
+    if settings.coingecko_api_key:
+        providers.append(CoinGeckoProvider(api_key=settings.coingecko_api_key, symbols=symbols))
     return ProviderRouter(providers)
 
 
 async def load_candles(asset: str, venue: str, timeframe: str, limit: int) -> list[Candle]:
     key = "|".join((asset, venue, timeframe, str(limit)))
+
     async def fetch() -> list[Candle]:
-        return await build_router().candles(
+        batch = await (await build_verified_service()).candles(
             MarketDataRequest(asset=asset, venue=venue, timeframe=timeframe, limit=limit)
         )
+        return list(batch.candles)
+
     return await candle_cache.get_or_load(key, fetch)
 
 
@@ -230,15 +230,12 @@ async def build_verified_service() -> VerifiedMarketDataService:
         raise RuntimeError("A DB-backed provider configuration is required for verified intelligence")
 
     symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
-    providers: list[MarketDataProvider] = []
-    if settings.twelvedata_api_key:
-        providers.append(TwelveDataProvider(api_key=settings.twelvedata_api_key, symbols=symbols))
-    if settings.finnhub_api_key:
-        providers.append(FinnhubProvider(api_key=settings.finnhub_api_key, symbols=symbols))
-    if settings.alphavantage_api_key:
-        providers.append(AlphaVantageProvider(api_key=settings.alphavantage_api_key, symbols=symbols))
-    if not providers:
-        raise RuntimeError("No market-data provider credentials configured")
+    providers: list[MarketDataProvider] = [
+        KrakenProvider(symbols=symbols),
+        CoinbaseProvider(symbols=symbols),
+    ]
+    if settings.coingecko_api_key:
+        providers.append(CoinGeckoProvider(api_key=settings.coingecko_api_key, symbols=symbols))
 
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
@@ -251,6 +248,7 @@ async def build_verified_service() -> VerifiedMarketDataService:
         providers,
         freshness_seconds=settings.freshness_seconds,
         configuration=configuration,
+        cross_validation_tolerance=Decimal(settings.cross_validation_tolerance),
     )
     return VerifiedMarketDataService(ingestor, producer_version="0.6.0")
 
@@ -398,21 +396,18 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_market_data_diagnostics() -> None:
         settings = get_settings()
-        configured_providers = tuple(
-            provider
-            for provider, key in (
-                ("twelvedata", settings.twelvedata_api_key),
-                ("finnhub", settings.finnhub_api_key),
-                ("alphavantage", settings.alphavantage_api_key),
-            )
-            if key
+        configured_providers = (
+            "kraken",
+            "coinbase",
+            *(("coingecko",) if settings.coingecko_api_key else ()),
         )
         database_configured = bool(os.getenv("MITROS_DATABASE_URL", "").strip())
         logger.warning(
-            "market_data_configuration providers=%s database_configured=%s freshness_seconds=%s",
-            ",".join(configured_providers) or "none",
+            "market_data_configuration providers=%s database_configured=%s freshness_seconds=%s cross_validation_tolerance=%s",
+            ",".join(configured_providers),
             database_configured,
             settings.freshness_seconds,
+            settings.cross_validation_tolerance,
         )
         supabase_url = os.getenv("SUPABASE_URL", "").strip()
         service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
