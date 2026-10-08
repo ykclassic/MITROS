@@ -154,7 +154,10 @@ class MarketDataIngestor:
 
                 if route.cross_validate:
                     for secondary_route in routes:
-                        if secondary_route.provider_key == route.provider_key:
+                        if (
+                            secondary_route.provider_key == route.provider_key
+                            or not secondary_route.cross_validate
+                        ):
                             continue
                         secondary = self.providers.get(secondary_route.provider_key)
                         if secondary is None:

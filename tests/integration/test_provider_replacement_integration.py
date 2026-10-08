@@ -55,7 +55,7 @@ async def test_kraken_primary_cross_validates_coinbase_with_tolerance() -> None:
     config = StaticProviderConfiguration(
         (
             ProviderRoute("kraken", "v1", 1, "PRIMARY", True, True, ("1h",), ("spot",)),
-            ProviderRoute("coinbase", "v1", 2, "SECONDARY", True, False, ("1h",), ("spot",)),
+            ProviderRoute("coinbase", "v1", 2, "SECONDARY", True, True, ("1h",), ("spot",)),
         )
     )
     result = await MarketDataIngestor(
