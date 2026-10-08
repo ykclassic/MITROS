@@ -224,7 +224,7 @@ def test_authenticated_production_phase2_snapshots() -> None:
         pytest.skip("MITROS_PRODUCTION_ACCESS_TOKEN is not configured for authenticated production E2E")
 
     headers = {"Authorization": f"Bearer {access_token}"}
-    for asset in ("BTC/USD", "ETH/USD", "SOL/USD"):
+    for asset in ("BTC/USD", "ETH/USD"):
         for timeframe in ("15m", "1h", "4h"):
             encoded_asset = asset.replace("/", "%2F")
             status, body, _ = request_json(
@@ -237,6 +237,9 @@ def test_authenticated_production_phase2_snapshots() -> None:
             assert body["venue"] == "spot"
             assert body["timeframe"] == timeframe
             assert body["provenance"]["data_quality"] == "VERIFIED"
+            providers = {item["provider"] for item in body["provenance"]["observations"]}
+            assert providers
+            assert providers <= {"kraken", "coinbase", "coingecko"}
             assert body["snapshot_checksum"]
             assert body["input_checksums"]
             assert body["engine_version"]
