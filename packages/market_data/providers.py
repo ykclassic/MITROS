@@ -258,18 +258,26 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
         # more candles. For 4h reconstruction we only need enough 1h
         # candles to produce a useful verified history; cap the upstream
         # hourly window below Coinbase's hard limit.
-        hours = request.limit * (4 if timeframe == "4h" else 1)
+        # The API validates the start/end span against the selected
+        # granularity. Calculate the window in candle units, not hours:
+        # request.limit 15m candles must span request.limit * 900 seconds.
+        seconds_per_candle = 900 if timeframe == "15m" else 3600
+        candle_count = request.limit * (4 if timeframe == "4h" else 1)
         if timeframe == "4h":
-            hours = min(hours, 348)
+            # Reconstruct 4h candles from complete hourly groups while staying
+            # below Coinbase's strict 350-candle request limit.
+            candle_count = min(candle_count, 348)
+        else:
+            candle_count = min(candle_count, 349)
         end = int(received.timestamp())
-        start = end - hours * 3600
+        start = end - candle_count * seconds_per_candle
         data = await self._get(
             f"/market/products/{mapping.provider_symbol}/candles",
             {
                 "start": str(start),
                 "end": str(end),
                 "granularity": granularity,
-                "limit": min(hours, 349),
+                "limit": candle_count,
             },
         )
         rows = data.get("candles")
