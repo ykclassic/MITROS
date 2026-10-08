@@ -12,8 +12,10 @@ from packages.market_data.symbols import SymbolMapper
 class MockTransport(httpx.AsyncBaseTransport):
     def __init__(self, payload: object) -> None:
         self.payload = payload
+        self.requests: list[httpx.Request] = []
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
         return httpx.Response(200, json=self.payload, request=request)
 
 
@@ -104,3 +106,20 @@ def test_symbol_mappings_are_canonical_for_replacement_providers() -> None:
     assert mapper.resolve("coinbase", "BTC/USD").provider_symbol == "BTC-USD"
     assert mapper.resolve("kraken", "BTC/USD").provider_symbol == "BTC/USD"
     assert mapper.resolve("coingecko", "BTC/USD").provider_symbol == "bitcoin"
+
+
+@pytest.mark.asyncio
+async def test_coinbase_four_hour_request_stays_below_provider_window_limit() -> None:
+    transport = MockTransport({"candles": []})
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = CoinbaseProvider(
+            symbols=SymbolMapper({"coinbase": {"BTC/USD": "BTC-USD"}}),
+            client=client,
+        )
+        with pytest.raises(RuntimeError, match="no candle rows"):
+            await provider.candles(
+                MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="4h", limit=200)
+            )
+    params = dict(transport.requests[0].url.params)
+    assert int(params["limit"]) == 348
+    assert int(params["end"]) - int(params["start"]) <= 348 * 3600
