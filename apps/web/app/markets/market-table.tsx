@@ -6,6 +6,7 @@ import { fetchJson } from "../../lib/api";
 type Quote = { asset: string; price: string; provider: string; observed_at: string; quality: string };
 type QuoteState = { quote?: Quote; error?: string };
 const assets = ["BTC/USD", "ETH/USD"];
+const QUOTE_TIMEOUT_MS = 45_000;
 
 export default function MarketTable() {
   const [quotes, setQuotes] = useState<Record<string, QuoteState>>({});
@@ -15,7 +16,10 @@ export default function MarketTable() {
     setLoading(true);
     const results = await Promise.all(assets.map(async (asset): Promise<[string, QuoteState]> => {
       try {
-        const quote = await fetchJson<Quote>("/api/v1/market/quote?asset=" + encodeURIComponent(asset) + "&venue=spot");
+        const quote = await fetchJson<Quote>(
+          "/api/v1/market/quote?asset=" + encodeURIComponent(asset) + "&venue=spot",
+          { timeoutMs: QUOTE_TIMEOUT_MS },
+        );
         return [asset, { quote }];
       } catch (error) {
         return [asset, { error: error instanceof Error ? error.message : "Quote request failed" }];

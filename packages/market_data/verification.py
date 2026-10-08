@@ -105,14 +105,32 @@ def verify_series(
     if not candles:
         _raise_assessment(DataQuality.UNAVAILABLE, "provider returned no candles")
     stamped = _deduplicate(candles)
+    reference = now.astimezone(UTC)
+    closed = []
+    forming_count = 0
+    for candle in stamped:
+        if candle.open_time > reference:
+            _raise_assessment(DataQuality.INVALID, "candle opens in the future")
+        if candle.close_time <= reference:
+            closed.append(candle)
+        else:
+            forming_count += 1
+
+    if not closed:
+        quality = DataQuality.INCOMPLETE if forming_count else DataQuality.UNAVAILABLE
+        _raise_assessment(
+            quality,
+            "provider returned no completed candles",
+        )
+
     verified = [
         verify_candle(
             candle,
-            now=now,
+            now=reference,
             interval=interval,
             max_age_seconds=max_age_seconds,
         )
-        for candle in stamped
+        for candle in closed
     ]
     _validate_continuity(verified, interval)
     return verified

@@ -34,6 +34,11 @@ export async function fetchJson<T>(path: string, init: ApiRequestInit = {}): Pro
     }
     if (!response.ok) throw new ApiError(response.status, "API request failed (HTTP " + response.status + ")");
     return (await response.json()) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(408, "API request timed out after " + Math.round(timeoutMs / 1000) + " seconds");
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
