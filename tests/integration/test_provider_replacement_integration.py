@@ -150,7 +150,7 @@ async def test_stale_latest_completed_candle_still_fails_closed() -> None:
     config = StaticProviderConfiguration(
         (ProviderRoute("kraken", "v1", 1, "PRIMARY", True, False, ("1h",), ("spot",)),)
     )
-    with pytest.raises(RuntimeError, match="kraken \[STALE\]: candle exceeds freshness limit"):
+    with pytest.raises(RuntimeError, match=r"kraken \[STALE\]: candle exceeds freshness limit"):
         await MarketDataIngestor(
             [StubProvider("kraken", [stale])],
             configuration=config,
