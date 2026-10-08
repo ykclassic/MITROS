@@ -218,6 +218,55 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
             assert "Authentication configuration is unavailable" in html
 
 
+def test_live_exchange_provider_matrix() -> None:
+    """Verify the exact public exchange endpoints used by production adapters.
+
+    This does not bypass MITROS authentication; it validates the upstream
+    production dependencies that the deployed service relies on.
+    """
+    cases = (
+        ("coinbase", "BTC/USD", "15m", "BTC-USD", "900"),
+        ("coinbase", "BTC/USD", "1h", "BTC-USD", "3600"),
+        ("coinbase", "BTC/USD", "4h", "BTC-USD", "14400"),
+        ("coinbase", "ETH/USD", "15m", "ETH-USD", "900"),
+        ("coinbase", "ETH/USD", "1h", "ETH-USD", "3600"),
+        ("coinbase", "ETH/USD", "4h", "ETH-USD", "14400"),
+        ("kraken", "BTC/USD", "15m", "BTC/USD", "15"),
+        ("kraken", "BTC/USD", "1h", "BTC/USD", "60"),
+        ("kraken", "BTC/USD", "4h", "BTC/USD", "240"),
+        ("kraken", "ETH/USD", "15m", "ETH/USD", "15"),
+        ("kraken", "ETH/USD", "1h", "ETH/USD", "60"),
+        ("kraken", "ETH/USD", "4h", "ETH/USD", "240"),
+    )
+    for provider, asset, timeframe, symbol, interval in cases:
+        if provider == "coinbase":
+            url = (
+                "https://api.exchange.coinbase.com/products/"
+                f"{symbol}/candles?granularity={interval}"
+            )
+            status, body, _ = request_json(url)
+            assert status == 200
+            assert isinstance(body, list) and body, (
+                provider,
+                asset,
+                timeframe,
+                "empty candles",
+            )
+            assert len(body[0]) >= 6
+        else:
+            url = (
+                "https://api.kraken.com/0/public/OHLC"
+                f"?pair={symbol.replace('/', '%2F')}&interval={interval}"
+            )
+            status, body, _ = request_json(url)
+            assert status == 200
+            assert isinstance(body, dict)
+            assert body.get("error") == [], (provider, asset, timeframe, body.get("error"))
+            result = body.get("result", {})
+            rows = [value for key, value in result.items() if key != "last" and isinstance(value, list)]
+            assert rows and rows[0], (provider, asset, timeframe, "empty candles")
+
+
 def test_authenticated_production_phase2_snapshots() -> None:
     access_token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
     if not access_token:
