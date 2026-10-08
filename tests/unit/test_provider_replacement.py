@@ -123,3 +123,20 @@ async def test_coinbase_four_hour_request_stays_below_provider_window_limit() ->
     params = dict(transport.requests[0].url.params)
     assert int(params["limit"]) == 348
     assert int(params["end"]) - int(params["start"]) <= 348 * 3600
+
+
+@pytest.mark.asyncio
+async def test_coinbase_fifteen_minute_window_uses_fifteen_minute_units() -> None:
+    transport = MockTransport({"candles": []})
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = CoinbaseProvider(
+            symbols=SymbolMapper({"coinbase": {"BTC/USD": "BTC-USD"}}),
+            client=client,
+        )
+        with pytest.raises(RuntimeError, match="no candle rows"):
+            await provider.candles(
+                MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="15m", limit=200)
+            )
+    params = dict(transport.requests[0].url.params)
+    assert int(params["limit"]) == 200
+    assert int(params["end"]) - int(params["start"]) == 200 * 15 * 60
