@@ -254,7 +254,13 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
             raise ValueError(f"Unsupported Coinbase timeframe: {timeframe}")
         mapping = self.symbols.resolve(self.id, request.asset)
         received = datetime.now(UTC)
+        # Coinbase rejects requests whose start/end window contains 350 or
+        # more candles. For 4h reconstruction we only need enough 1h
+        # candles to produce a useful verified history; cap the upstream
+        # hourly window below Coinbase's hard limit.
         hours = request.limit * (4 if timeframe == "4h" else 1)
+        if timeframe == "4h":
+            hours = min(hours, 348)
         end = int(received.timestamp())
         start = end - hours * 3600
         data = await self._get(
@@ -263,7 +269,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
                 "start": str(start),
                 "end": str(end),
                 "granularity": granularity,
-                "limit": min(hours, 350),
+                "limit": min(hours, 349),
             },
         )
         rows = data.get("candles")
