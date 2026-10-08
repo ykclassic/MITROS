@@ -3,10 +3,62 @@ from decimal import Decimal
 from uuid import uuid4
 
 from .contracts import Candle, DataQuality, MarketDataRequest
+from .http import ProviderHTTPError
 from .interface import MarketDataProvider
 from .routing import ProviderConfiguration, ProviderRoute
 from .timeframes import timeframe_delta
 from .verification import MarketDataVerificationError, compare_series, verify_series
+
+
+def _provider_failure_category(exc: Exception) -> str:
+    if isinstance(exc, ProviderHTTPError):
+        if exc.status_code == 401:
+            return "invalid_credentials"
+        if exc.status_code == 403:
+            return "forbidden_or_plan_restriction"
+        if exc.status_code == 429:
+            return "rate_limited"
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            return "provider_request_rejected"
+        if exc.status_code is not None and exc.status_code >= 500:
+            return "provider_server_error"
+        return "provider_transport_error"
+    if isinstance(exc, MarketDataVerificationError):
+        return f"verification_{exc.quality.value.lower()}"
+    if isinstance(exc, ValueError):
+        return "provider_payload_or_parameter_error"
+    return "provider_unexpected_error"
+
+
+def _provider_failure_detail(exc: Exception) -> str:
+    if isinstance(exc, ProviderHTTPError):
+        detail = exc.response_body or str(exc)
+        return detail[:240].replace("\n", " ").replace("\r", " ")
+    return str(exc)[:240].replace("\n", " ").replace("\r", " ")
+
+
+def _log_provider_failure(
+    *,
+    provider: str,
+    category: str,
+    asset: str,
+    timeframe: str | None,
+    detail: str | None = None,
+) -> None:
+    import logging
+
+    fields = [
+        f"provider={provider}",
+        f"category={category}",
+        f"asset={asset}",
+        f"timeframe={timeframe or '1h'}",
+    ]
+    if detail:
+        fields.append(f"detail={detail[:240]}")
+    logging.getLogger("mitros.market_data").warning(
+        "provider_probe_failure %s",
+        " ".join(fields),
+    )
 
 
 class MarketDataIngestor:
@@ -46,7 +98,7 @@ class MarketDataIngestor:
                 provider_key=provider.id,
                 provider_version=provider.version,
                 priority=index,
-                role="PRIMARY" if index == 0 else "SECONDARY",
+                role="PRIMARY" if index == 1 else "SECONDARY",
                 active=True,
                 cross_validate=False,
                 supported_timeframes=(),
@@ -91,6 +143,12 @@ class MarketDataIngestor:
                     max_age_seconds=self.freshness_seconds,
                 )
                 if not verified:
+                    _log_provider_failure(
+                        provider=provider.id,
+                        category="no_verified_candles",
+                        asset=request.asset,
+                        timeframe=request.timeframe,
+                    )
                     errors.append(f"{provider.id}: no verified candles")
                     continue
 
@@ -126,18 +184,55 @@ class MarketDataIngestor:
                         except MarketDataVerificationError as exc:
                             if exc.quality is DataQuality.CONFLICTED:
                                 raise
-                            errors.append(f"{secondary.id}: cross-validation unavailable: {exc}")
+                            _log_provider_failure(
+                                provider=secondary.id,
+                                category=_provider_failure_category(exc),
+                                asset=request.asset,
+                                timeframe=request.timeframe,
+                            )
+                            errors.append(
+                                f"{secondary.id}: cross-validation unavailable: {exc}"
+                            )
                         except Exception as exc:
-                            errors.append(f"{secondary.id}: cross-validation unavailable: {exc}")
+                            _log_provider_failure(
+                                provider=secondary.id,
+                                category=_provider_failure_category(exc),
+                                asset=request.asset,
+                                timeframe=request.timeframe,
+                                detail=_provider_failure_detail(exc),
+                            )
+                            errors.append(
+                                f"{secondary.id}: cross-validation unavailable: {exc}"
+                            )
 
                 return verified
             except MarketDataVerificationError as exc:
                 if exc.quality is DataQuality.CONFLICTED:
                     raise
+                _log_provider_failure(
+                    provider=provider.id,
+                    category=_provider_failure_category(exc),
+                    asset=request.asset,
+                    timeframe=request.timeframe,
+                )
                 errors.append(f"{provider.id} [{exc.quality}]: {exc}")
             except (ValueError, RuntimeError) as exc:
+                _log_provider_failure(
+                    provider=provider.id,
+                    category=_provider_failure_category(exc),
+                    asset=request.asset,
+                    timeframe=request.timeframe,
+                    detail=_provider_failure_detail(exc),
+                )
                 errors.append(f"{provider.id}: {exc}")
             except Exception as exc:
+                _log_provider_failure(
+                    provider=provider.id,
+                    category=_provider_failure_category(exc),
+                    asset=request.asset,
+                    timeframe=request.timeframe,
+                    detail=_provider_failure_detail(exc),
+                )
                 errors.append(f"{provider.id}: unexpected provider error: {exc}")
 
         raise RuntimeError(
