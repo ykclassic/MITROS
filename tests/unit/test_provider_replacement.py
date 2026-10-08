@@ -20,10 +20,13 @@ class MockTransport(httpx.AsyncBaseTransport):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timeframe", ["15m", "1h", "4h"])
 async def test_coinbase_parser_supports_canonical_timeframes(timeframe: str) -> None:
-    payload = [
-        [1700000000, "34900", "35100", "35000", "35050", "12.5"],
-        [1700003600, "35000", "35200", "35050", "35150", "11.5"],
-    ]
+    payload = {
+        "candles": [
+            {"start": str(1790812800 + hour * 3600), "low": "34900", "high": "35100",
+             "open": "35000", "close": "35050", "volume": "12.5"}
+            for hour in range(8)
+        ]
+    }
     async with httpx.AsyncClient(transport=MockTransport(payload)) as client:
         provider = CoinbaseProvider(
             symbols=SymbolMapper({"coinbase": {"BTC/USD": "BTC-USD"}}),

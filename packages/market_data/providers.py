@@ -236,11 +236,15 @@ class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
 
 class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
     id = "coinbase"
-    version = "v1-exchange-rest"
-    _GRANULARITY: ClassVar[dict[str, int]] = {"15m": 900, "1h": 3600, "4h": 14400}
+    version = "v2-advanced-public"
+    _GRANULARITY: ClassVar[dict[str, str]] = {
+        "15m": "FIFTEEN_MINUTE",
+        "1h": "ONE_HOUR",
+        "4h": "ONE_HOUR",
+    }
 
     def __init__(self, *, symbols: SymbolMapper, client: httpx.AsyncClient | None = None) -> None:
-        super().__init__(base_url="https://api.exchange.coinbase.com", client=client)
+        super().__init__(base_url="https://api.coinbase.com/api/v3/brokerage", client=client)
         self.symbols = symbols
 
     async def candles(self, request: MarketDataRequest) -> list[Candle]:
@@ -250,45 +254,103 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
             raise ValueError(f"Unsupported Coinbase timeframe: {timeframe}")
         mapping = self.symbols.resolve(self.id, request.asset)
         received = datetime.now(UTC)
+        hours = request.limit * (4 if timeframe == "4h" else 1)
         end = int(received.timestamp())
-        start = end - request.limit * granularity
-        data = await self._get_json(
-            f"/products/{mapping.provider_symbol}/candles",
-            {"granularity": granularity, "start": start, "end": end},
+        start = end - hours * 3600
+        data = await self._get(
+            f"/market/products/{mapping.provider_symbol}/candles",
+            {
+                "start": str(start),
+                "end": str(end),
+                "granularity": granularity,
+                "limit": min(hours, 350),
+            },
         )
-        if not isinstance(data, list) or not data:
+        rows = data.get("candles")
+        if not isinstance(rows, list) or not rows:
             raise RuntimeError("Coinbase returned no candle rows")
-        candles: list[Candle] = []
-        for row in sorted(data, key=lambda item: int(item[0])):
-            if not isinstance(row, list) or len(row) < 6:
+        parsed: list[Candle] = []
+        interval_seconds = 900 if timeframe == "15m" else 3600
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
-            open_time = utc_from_epoch(float(row[0]))
-            candles.append(
+            try:
+                open_time = utc_from_epoch(float(row["start"]))
+                parsed.append(
+                    Candle(
+                        asset=request.asset,
+                        venue=request.venue,
+                        symbol=request.asset,
+                        timeframe="1h" if timeframe == "4h" else timeframe,
+                        open_time=open_time,
+                        close_time=open_time + timedelta(seconds=interval_seconds),
+                        open=Decimal(str(row["open"])),
+                        high=Decimal(str(row["high"])),
+                        low=Decimal(str(row["low"])),
+                        close=Decimal(str(row["close"])),
+                        volume=Decimal(str(row["volume"])),
+                        provider=self.id,
+                        provider_version=self.version,
+                        observed_at=received,
+                        received_at=received,
+                    )
+                )
+            except (KeyError, TypeError, ValueError):
+                continue
+        parsed.sort(key=lambda item: item.open_time)
+        if timeframe != "4h":
+            if not parsed:
+                raise RuntimeError("Coinbase returned no parseable candle rows")
+            return [
+                item.model_copy(update={"timeframe": timeframe})
+                for item in parsed[-request.limit:]
+            ]
+
+        by_time = {item.open_time: item for item in parsed}
+        grouped: list[Candle] = []
+        for start_time in sorted(by_time):
+            if start_time.hour % 4 != 0:
+                continue
+            parts = [by_time.get(start_time + timedelta(hours=index)) for index in range(4)]
+            if any(part is None for part in parts):
+                continue
+            valid_parts = [part for part in parts if part is not None]
+            grouped.append(
                 Candle(
-                    asset=request.asset, venue=request.venue, symbol=request.asset, timeframe=timeframe,
-                    open_time=open_time, close_time=open_time + timedelta(seconds=granularity),
-                    open=Decimal(str(row[3])), high=Decimal(str(row[2])), low=Decimal(str(row[1])),
-                    close=Decimal(str(row[4])), volume=Decimal(str(row[5])),
-                    provider=self.id, provider_version=self.version,
-                    observed_at=received, received_at=received,
+                    asset=request.asset,
+                    venue=request.venue,
+                    symbol=request.asset,
+                    timeframe="4h",
+                    open_time=start_time,
+                    close_time=start_time + timedelta(hours=4),
+                    open=valid_parts[0].open,
+                    high=max(part.high for part in valid_parts),
+                    low=min(part.low for part in valid_parts),
+                    close=valid_parts[-1].close,
+                    volume=sum((part.volume or Decimal("0") for part in valid_parts), Decimal("0")),
+                    provider=self.id,
+                    provider_version=self.version,
+                    observed_at=received,
+                    received_at=received,
                 )
             )
-        if not candles:
-            raise RuntimeError("Coinbase returned no parseable candle rows")
-        return candles[-request.limit :]
+        if not grouped:
+            raise RuntimeError("Coinbase returned no complete four-hour candle groups")
+        return grouped[-request.limit:]
 
     async def quote(self, request: MarketDataRequest) -> Quote:
         mapping = self.symbols.resolve(self.id, request.asset)
         received = datetime.now(UTC)
-        data = await self._get(f"/products/{mapping.provider_symbol}/ticker", {})
-        observed = _observed_at(data.get("time"), received)
+        data = await self._get(f"/market/products/{mapping.provider_symbol}", {})
         return Quote(
-            asset=request.asset, venue=request.venue, symbol=request.asset,
+            asset=request.asset,
+            venue=request.venue,
+            symbol=request.asset,
             last=Decimal(str(data["price"])),
-            bid=Decimal(str(data["bid"])) if data.get("bid") else None,
-            ask=Decimal(str(data["ask"])) if data.get("ask") else None,
-            provider=self.id, provider_version=self.version,
-            observed_at=observed, received_at=received,
+            provider=self.id,
+            provider_version=self.version,
+            observed_at=received,
+            received_at=received,
         )
 
     async def health(self) -> ProviderHealth:
