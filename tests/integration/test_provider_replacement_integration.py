@@ -77,7 +77,7 @@ async def test_cross_provider_conflict_still_fails_closed() -> None:
     config = StaticProviderConfiguration(
         (
             ProviderRoute("kraken", "v1", 1, "PRIMARY", True, True, ("1h",), ("spot",)),
-            ProviderRoute("coinbase", "v1", 2, "SECONDARY", True, False, ("1h",), ("spot",)),
+            ProviderRoute("coinbase", "v1", 2, "SECONDARY", True, True, ("1h",), ("spot",)),
         )
     )
     with pytest.raises(MarketDataVerificationError) as error:
