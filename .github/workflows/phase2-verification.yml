@@ -20,6 +20,9 @@ on:
       - "packages/features/**"
       - "packages/market_data/**"
       - "tests/unit/test_market_intelligence_phase2.py"
+      - "tests/unit/test_provider_replacement.py"
+      - "tests/integration/test_provider_replacement_integration.py"
+      - "tests/deployment/test_production_deployment.py"
       - ".github/workflows/phase2-verification.yml"
 
 jobs:
