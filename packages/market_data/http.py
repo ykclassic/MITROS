@@ -24,30 +24,30 @@ class HTTPProviderBase:
     def __init__(
         self,
         *,
-        api_key: str,
+        api_key: str = "",
         base_url: str,
         client: httpx.AsyncClient | None = None,
+        headers: Mapping[str, str] | None = None,
     ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.headers = dict(headers or {})
         self._client = client
 
-    async def _get(
+    async def _get_json(
         self,
         path: str,
         params: Mapping[str, str | int | float | bool | None],
-    ) -> dict[str, Any]:
+    ) -> Any:
         client = self._client or httpx.AsyncClient(timeout=10.0)
         try:
             response = await client.get(
                 f"{self.base_url}/{path.lstrip('/')}",
                 params=params,
+                headers=self.headers or None,
             )
             response.raise_for_status()
-            data = response.json()
-            if not isinstance(data, dict):
-                raise ProviderHTTPError("Provider returned non-object payload")
-            return data
+            return response.json()
         except httpx.HTTPStatusError as exc:
             body = exc.response.text[:240].replace("\n", " ").replace("\r", " ")
             raise ProviderHTTPError(
@@ -63,6 +63,16 @@ class HTTPProviderBase:
         finally:
             if self._client is None:
                 await client.aclose()
+
+    async def _get(
+        self,
+        path: str,
+        params: Mapping[str, str | int | float | bool | None],
+    ) -> dict[str, Any]:
+        data = await self._get_json(path, params)
+        if not isinstance(data, dict):
+            raise ProviderHTTPError("Provider returned non-object payload")
+        return data
 
 
 def utc_from_epoch(value: float) -> datetime:
