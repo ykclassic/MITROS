@@ -387,6 +387,39 @@ def create_app() -> FastAPI:
         allow_headers=["Accept", "Authorization", "Content-Type", "X-MITROS-Request-ID"],
     )
 
+    @app.on_event("startup")
+    async def startup_market_data_diagnostics() -> None:
+        settings = get_settings()
+        configured_providers = tuple(
+            provider
+            for provider, key in (
+                ("twelvedata", settings.twelvedata_api_key),
+                ("finnhub", settings.finnhub_api_key),
+                ("alphavantage", settings.alphavantage_api_key),
+            )
+            if key
+        )
+        database_configured = bool(os.getenv("MITROS_DATABASE_URL", "").strip())
+        logger.info(
+            "market_data_configuration providers=%s database_configured=%s freshness_seconds=%s",
+            ",".join(configured_providers) or "none",
+            database_configured,
+            settings.freshness_seconds,
+        )
+        if database_configured:
+            try:
+                configuration = PostgresProviderConfiguration(os.environ["MITROS_DATABASE_URL"])
+                route_counts = {}
+                for asset in ("BTC/USD", "ETH/USD", "SOL/USD"):
+                    routes = await configuration.routes(asset=asset, venue="spot", timeframe="1h")
+                    route_counts[asset] = len(routes)
+                logger.info("market_data_provider_routes route_counts=%s", route_counts)
+            except Exception as exc:
+                logger.error(
+                    "market_data_route_configuration_unavailable category=%s",
+                    _market_data_failure_category(exc),
+                )
+
     @app.get("/health", response_model=ApiHealth)
     async def health() -> ApiHealth:
         return ApiHealth(status="ok", service="mitros-api", timestamp=datetime.now(UTC))
