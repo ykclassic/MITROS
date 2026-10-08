@@ -219,18 +219,16 @@ def test_production_web_login_is_public_and_product_routes_are_protected() -> No
 
 
 def test_live_exchange_provider_matrix() -> None:
-    """Verify the exact public exchange endpoints used by production adapters.
+    """Verify the public exchange candle sources used by production adapters."""
+    import time
 
-    This does not bypass MITROS authentication; it validates the upstream
-    production dependencies that the deployed service relies on.
-    """
     cases = (
-        ("coinbase", "BTC/USD", "15m", "BTC-USD", "900"),
-        ("coinbase", "BTC/USD", "1h", "BTC-USD", "3600"),
-        ("coinbase", "BTC/USD", "4h", "BTC-USD", "14400"),
-        ("coinbase", "ETH/USD", "15m", "ETH-USD", "900"),
-        ("coinbase", "ETH/USD", "1h", "ETH-USD", "3600"),
-        ("coinbase", "ETH/USD", "4h", "ETH-USD", "14400"),
+        ("coinbase", "BTC/USD", "15m", "BTC-USD", "FIFTEEN_MINUTE"),
+        ("coinbase", "BTC/USD", "1h", "BTC-USD", "ONE_HOUR"),
+        ("coinbase", "BTC/USD", "4h", "BTC-USD", "ONE_HOUR"),
+        ("coinbase", "ETH/USD", "15m", "ETH-USD", "FIFTEEN_MINUTE"),
+        ("coinbase", "ETH/USD", "1h", "ETH-USD", "ONE_HOUR"),
+        ("coinbase", "ETH/USD", "4h", "ETH-USD", "ONE_HOUR"),
         ("kraken", "BTC/USD", "15m", "BTC/USD", "15"),
         ("kraken", "BTC/USD", "1h", "BTC/USD", "60"),
         ("kraken", "BTC/USD", "4h", "BTC/USD", "240"),
@@ -238,21 +236,20 @@ def test_live_exchange_provider_matrix() -> None:
         ("kraken", "ETH/USD", "1h", "ETH/USD", "60"),
         ("kraken", "ETH/USD", "4h", "ETH/USD", "240"),
     )
+    end_time = int(time.time())
     for provider, asset, timeframe, symbol, interval in cases:
         if provider == "coinbase":
+            span = 900 * (16 if timeframe == "4h" else 10)
             url = (
-                "https://api.exchange.coinbase.com/products/"
-                f"{symbol}/candles?granularity={interval}"
+                "https://api.coinbase.com/api/v3/brokerage/market/products/"
+                f"{symbol}/candles?start={end_time - span}&end={end_time}"
+                f"&granularity={interval}&limit=350"
             )
             status, body, _ = request_json(url)
             assert status == 200
-            assert isinstance(body, list) and body, (
-                provider,
-                asset,
-                timeframe,
-                "empty candles",
-            )
-            assert len(body[0]) >= 6
+            assert isinstance(body, dict)
+            rows = body.get("candles", [])
+            assert rows, (provider, asset, timeframe, body)
         else:
             url = (
                 "https://api.kraken.com/0/public/OHLC"
