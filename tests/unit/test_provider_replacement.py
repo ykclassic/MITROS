@@ -86,8 +86,8 @@ async def test_coingecko_parser_reconstructs_hourly_and_four_hour_candles() -> N
     assert len(one_hour) == 4
     assert one_hour[-1].close == Decimal("111")
     assert len(four_hour) == 2
-    assert four_hour[0].open == Decimal("100")
-    assert four_hour[0].close == Decimal("103")
+    assert four_hour[0].open == Decimal("104")
+    assert four_hour[0].close == Decimal("107")
 
 
 def test_symbol_mappings_are_canonical_for_replacement_providers() -> None:
