@@ -224,8 +224,10 @@ def _market_data_failure_category(exc: Exception) -> str:
 async def build_verified_service() -> VerifiedMarketDataService:
     settings = get_settings()
     database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
-    if not database_url:
-        raise RuntimeError("MITROS_DATABASE_URL is required for verified intelligence")
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if not database_url and not (supabase_url and service_role_key):
+        raise RuntimeError("A DB-backed provider configuration is required for verified intelligence")
 
     symbols = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
     providers: list[MarketDataProvider] = []
