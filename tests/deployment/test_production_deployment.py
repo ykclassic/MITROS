@@ -33,19 +33,18 @@ def request_json(
 
 def safe_diagnostic_body(body: str, *, limit: int = 500) -> str:
     """Bound and redact provider/API response text before printing CI failures."""
-    value = body.replace("\\n", " ").replace("\\r", " ")
+    value = body.replace("\n", " ").replace("\r", " ")
     token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
     if token:
         value = value.replace(token, "[REDACTED]")
-    value = re.sub(r"(?i)(bearer\\s+)[A-Za-z0-9._~-]+", r"\\1[REDACTED]", value)
+    value = re.sub(r"(?i)(bearer\s+)[A-Za-z0-9._~-]+", r"\1[REDACTED]", value)
     value = re.sub(
-        r'(?i)(api[_-]?key|access[_-]?token|secret|authorization)(["\\']?\\s*[:=]\\s*["\\']?)[^,"\\' }]+',
-        r"\\1\\2[REDACTED]",
+        r"(?i)(api[_-]?key|access[_-]?token|secret|authorization)([\"']?\s*[:=]\s*[\"']?)[^,\"' }]+",
+        r"\1\2[REDACTED]",
         value,
     )
     value = re.sub(r"(?i)(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{8,})", "[REDACTED]", value)
     return value[:limit]
-
 
 def request_json_diagnostic(
     url: str,
