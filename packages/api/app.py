@@ -400,7 +400,7 @@ def create_app() -> FastAPI:
             if key
         )
         database_configured = bool(os.getenv("MITROS_DATABASE_URL", "").strip())
-        logger.info(
+        logger.warning(
             "market_data_configuration providers=%s database_configured=%s freshness_seconds=%s",
             ",".join(configured_providers) or "none",
             database_configured,
@@ -416,8 +416,9 @@ def create_app() -> FastAPI:
                 logger.info("market_data_provider_routes route_counts=%s", route_counts)
             except Exception as exc:
                 logger.error(
-                    "market_data_route_configuration_unavailable category=%s",
+                    "market_data_route_configuration_unavailable category=%s exception_type=%s",
                     _market_data_failure_category(exc),
+                    type(exc).__name__,
                 )
 
     @app.get("/health", response_model=ApiHealth)
