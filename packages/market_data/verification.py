@@ -52,6 +52,7 @@ def verify_candle(
     now: datetime,
     interval: timedelta,
     max_age_seconds: int,
+    check_freshness: bool = True,
 ) -> Candle:
     if not candle.asset.strip() or not candle.venue.strip():
         _raise_assessment(DataQuality.INVALID, "asset and venue must be non-empty")
@@ -62,7 +63,11 @@ def verify_candle(
             _raise_assessment(DataQuality.INVALID, f"{timestamp_name} must be timezone-aware")
 
     assessment = DataQualityStateMachine.assess_candle(
-        candle, now=now, interval=interval, max_age_seconds=max_age_seconds
+        candle,
+        now=now,
+        interval=interval,
+        max_age_seconds=max_age_seconds,
+        check_freshness=check_freshness,
     )
     if assessment.quality is not DataQuality.VERIFIED:
         _raise_assessment(assessment.quality, assessment.reasons[0])
@@ -118,19 +123,21 @@ def verify_series(
 
     if not closed:
         quality = DataQuality.INCOMPLETE if forming_count else DataQuality.UNAVAILABLE
-        _raise_assessment(
-            quality,
-            "provider returned no completed candles",
-        )
+        _raise_assessment(quality, "provider returned no completed candles")
 
+    # Historical candles are validated for integrity but are not subject to the
+    # current freshness window. Freshness is a dataset-level property of the
+    # latest completed candle; applying it to every historical candle would make
+    # every multi-candle intelligence dataset fail closed by construction.
     verified = [
         verify_candle(
             candle,
             now=reference,
             interval=interval,
             max_age_seconds=max_age_seconds,
+            check_freshness=index == len(closed) - 1,
         )
-        for candle in closed
+        for index, candle in enumerate(closed)
     ]
     _validate_continuity(verified, interval)
     return verified

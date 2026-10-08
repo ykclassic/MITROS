@@ -104,3 +104,58 @@ async def test_emergency_route_is_not_selected_for_unsupported_timeframe() -> No
         await MarketDataIngestor([emergency], configuration=config).candles(
             MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="15m")
         )
+
+
+@pytest.mark.asyncio
+async def test_historical_candles_may_be_old_when_latest_completed_candle_is_fresh() -> None:
+    candles = []
+    for hours_ago in (3, 2, 1, 0):
+        close_time = NOW - timedelta(hours=hours_ago)
+        candles.append(
+            candle("kraken").model_copy(
+                update={
+                    "open_time": close_time - timedelta(hours=1),
+                    "close_time": close_time,
+                    "observed_at": close_time,
+                    "received_at": close_time,
+                }
+            )
+        )
+    config = StaticProviderConfiguration(
+        (ProviderRoute("kraken", "v1", 1, "PRIMARY", True, False, ("1h",), ("spot",)),)
+    )
+    result = await MarketDataIngestor(
+        [StubProvider("kraken", candles)],
+        configuration=config,
+        freshness_seconds=120,
+    ).candles(
+        MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="1h"),
+        now=NOW,
+    )
+    assert len(result) == 4
+    assert all(item.quality is DataQuality.VERIFIED for item in result)
+
+
+@pytest.mark.asyncio
+async def test_stale_latest_completed_candle_still_fails_closed() -> None:
+    stale_close = NOW - timedelta(hours=3)
+    stale = candle("kraken").model_copy(
+        update={
+            "open_time": stale_close - timedelta(hours=1),
+            "close_time": stale_close,
+            "observed_at": stale_close,
+            "received_at": stale_close,
+        }
+    )
+    config = StaticProviderConfiguration(
+        (ProviderRoute("kraken", "v1", 1, "PRIMARY", True, False, ("1h",), ("spot",)),)
+    )
+    with pytest.raises(RuntimeError, match=r"kraken \[STALE\]: candle exceeds freshness limit"):
+        await MarketDataIngestor(
+            [StubProvider("kraken", [stale])],
+            configuration=config,
+            freshness_seconds=120,
+        ).candles(
+            MarketDataRequest(asset="BTC/USD", venue="spot", timeframe="1h"),
+            now=NOW,
+        )
