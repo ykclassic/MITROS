@@ -236,7 +236,7 @@ class AlphaVantageProvider(HTTPProviderBase, MarketDataProvider):
 class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
     id = "coinbase"
     version = "v1-exchange-rest"
-    _GRANULARITY = {"15m": 900, "1h": 3600, "4h": 14400}
+    _GRANULARITY: ClassVar[dict[str, int]] = {"15m": 900, "1h": 3600, "4h": 14400}
 
     def __init__(self, *, symbols: SymbolMapper, client: httpx.AsyncClient | None = None) -> None:
         super().__init__(base_url="https://api.exchange.coinbase.com", client=client)
@@ -301,7 +301,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
 class KrakenProvider(HTTPProviderBase, MarketDataProvider):
     id = "kraken"
     version = "v1-spot-rest"
-    _INTERVAL_MINUTES = {"15m": 15, "1h": 60, "4h": 240}
+    _INTERVAL_MINUTES: ClassVar[dict[str, int]] = {"15m": 15, "1h": 60, "4h": 240}
 
     def __init__(self, *, symbols: SymbolMapper, client: httpx.AsyncClient | None = None) -> None:
         super().__init__(base_url="https://api.kraken.com/0/public", client=client)
@@ -319,7 +319,7 @@ class KrakenProvider(HTTPProviderBase, MarketDataProvider):
         )
         result = data.get("result")
         if not isinstance(result, dict):
-            raise RuntimeError("Kraken returned no OHLC result")
+            raise TypeError("Kraken returned no OHLC result")
         rows = next(
             (value for key, value in result.items() if key != "last" and isinstance(value, list)),
             None,
@@ -375,7 +375,7 @@ class KrakenProvider(HTTPProviderBase, MarketDataProvider):
 class CoinGeckoProvider(HTTPProviderBase, MarketDataProvider):
     id = "coingecko"
     version = "v1-market-chart-hourly"
-    _SUPPORTED = {"1h", "4h"}
+    _SUPPORTED: ClassVar[set[str]] = {"1h", "4h"}
 
     def __init__(
         self,
