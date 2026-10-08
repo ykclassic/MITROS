@@ -326,3 +326,40 @@ def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -
         except urllib.error.HTTPError as exc:
             status = exc.code
         assert status in (404, 405, 503)
+
+
+def test_authenticated_production_market_data_and_intelligence_matrix() -> None:
+    access_token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
+    if not access_token:
+        pytest.fail("MITROS_PRODUCTION_ACCESS_TOKEN is required for the production matrix gate")
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    for asset in ("BTC/USD", "ETH/USD"):
+        quote_status, quote_body, _ = request_json(
+            f"{API_URL}/api/v1/market/quote?asset={asset.replace('/', '%2F')}&venue=spot",
+            headers=headers,
+        )
+        assert quote_status == 200
+        assert quote_body["asset"] == asset
+        assert quote_body["venue"] == "spot"
+        assert quote_body["quality"] == "VERIFIED"
+        assert quote_body["provider"] in {"kraken", "coinbase", "coingecko"}
+        assert quote_body["price"]
+
+        for timeframe in ("15m", "1h", "4h"):
+            status, body, _ = request_json(
+                f"{API_URL}/api/v1/intelligence/snapshot"
+                f"?asset={asset.replace('/', '%2F')}&venue=spot&timeframe={timeframe}",
+                headers=headers,
+            )
+            assert status == 200
+            assert body["asset"] == asset
+            assert body["venue"] == "spot"
+            assert body["timeframe"] == timeframe
+            assert body["provenance"]["data_quality"] == "VERIFIED"
+            assert body["provenance"]["observations"]
+            assert {item["provider"] for item in body["provenance"]["observations"]} <= {
+                "kraken", "coinbase", "coingecko"
+            }
+            assert body["snapshot_checksum"]
+            assert body["provenance"]["batch_checksum"]
