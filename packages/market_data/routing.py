@@ -103,11 +103,13 @@ class SupabaseRestProviderConfiguration:
                 continue
             if supported_venues and venue not in supported_venues:
                 continue
+            priority_raw = row.get("priority")
+            priority = int(priority_raw) if isinstance(priority_raw, (int, str)) else 0
             result.append(
                 ProviderRoute(
                     provider_key=str(provider["provider_key"]),
                     provider_version=str(provider["provider_version"]),
-                    priority=int(row["priority"]) if isinstance(row.get("priority"), (int, str)) else 0,
+                    priority=priority,
                     role=str(row["role"]),
                     active=bool(row["active"]),
                     cross_validate=bool(row["cross_validate"]),
