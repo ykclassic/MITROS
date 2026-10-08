@@ -31,6 +31,49 @@ def request_json(
         return response.status, json.loads(body), {key.lower(): value for key, value in response.headers.items()}
 
 
+def safe_diagnostic_body(body: str, *, limit: int = 500) -> str:
+    """Bound and redact provider/API response text before printing CI failures."""
+    value = body.replace("\\n", " ").replace("\\r", " ")
+    token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
+    if token:
+        value = value.replace(token, "[REDACTED]")
+    value = re.sub(r"(?i)(bearer\\s+)[A-Za-z0-9._~-]+", r"\\1[REDACTED]", value)
+    value = re.sub(
+        r'(?i)(api[_-]?key|access[_-]?token|secret|authorization)(["\\']?\\s*[:=]\\s*["\\']?)[^,"\\' }]+',
+        r"\\1\\2[REDACTED]",
+        value,
+    )
+    value = re.sub(r"(?i)(sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{8,})", "[REDACTED]", value)
+    return value[:limit]
+
+
+def request_json_diagnostic(
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, object, dict[str, str]]:
+    """Return HTTP failures as data so the entire production matrix is reported."""
+    request = urllib.request.Request(url, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=35) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            response_headers = {key.lower(): value for key, value in response.headers.items()}
+            try:
+                body: object = json.loads(raw)
+            except json.JSONDecodeError:
+                body = safe_diagnostic_body(raw)
+            return response.status, body, response_headers
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", errors="replace")
+        try:
+            body = json.loads(raw)
+        except json.JSONDecodeError:
+            body = safe_diagnostic_body(raw)
+        return exc.code, body, {key.lower(): value for key, value in exc.headers.items()}
+    except (urllib.error.URLError, TimeoutError) as exc:
+        return 0, {"transport_error": safe_diagnostic_body(repr(exc))}, {}
+
+
 def request_text(
     url: str,
     *,
@@ -270,31 +313,52 @@ def test_authenticated_production_phase2_snapshots() -> None:
         pytest.skip("MITROS_PRODUCTION_ACCESS_TOKEN is not configured for authenticated production E2E")
 
     headers = {"Authorization": f"Bearer {access_token}"}
+    failures: list[str] = []
+    passed: list[str] = []
     for asset in ("BTC/USD", "ETH/USD"):
         for timeframe in ("15m", "1h", "4h"):
+            case = f"{asset} {timeframe}"
             encoded_asset = asset.replace("/", "%2F")
-            status, body, _ = request_json(
+            status, body, _ = request_json_diagnostic(
                 f"{API_URL}/api/v1/intelligence/snapshot"
                 f"?asset={encoded_asset}&venue=spot&timeframe={timeframe}",
                 headers=headers,
             )
-            assert status == 200
-            assert body["asset"] == asset
-            assert body["venue"] == "spot"
-            assert body["timeframe"] == timeframe
-            assert body["provenance"]["data_quality"] == "VERIFIED"
-            providers = {item["provider"] for item in body["provenance"]["observations"]}
-            assert providers
-            assert providers <= {"kraken", "coinbase", "coingecko"}
-            assert body["snapshot_checksum"]
-            assert body["input_checksums"]
-            assert body["engine_version"]
-            assert body["configuration_version"]
-            assert body["observation_window"]
-            assert body["generated_at"]
-            assert body["provenance"]["batch_checksum"]
-            assert body["provenance"]["observations"]
-            assert "trade_probability" not in body
+            if status != 200:
+                failures.append(
+                    f"{case}: HTTP {status}; response={safe_diagnostic_body(json.dumps(body, default=str))}"
+                )
+                continue
+            if not isinstance(body, dict):
+                failures.append(f"{case}: HTTP 200 but non-object response={safe_diagnostic_body(str(body))}")
+                continue
+            try:
+                assert body["asset"] == asset
+                assert body["venue"] == "spot"
+                assert body["timeframe"] == timeframe
+                assert body["provenance"]["data_quality"] == "VERIFIED"
+                providers = {item["provider"] for item in body["provenance"]["observations"]}
+                assert providers
+                assert providers <= {"kraken", "coinbase", "coingecko"}
+                assert body["snapshot_checksum"]
+                assert body["input_checksums"]
+                assert body["engine_version"]
+                assert body["configuration_version"]
+                assert body["observation_window"]
+                assert body["generated_at"]
+                assert body["provenance"]["batch_checksum"]
+                assert body["provenance"]["observations"]
+                assert "trade_probability" not in body
+            except (AssertionError, KeyError, TypeError) as exc:
+                failures.append(
+                    f"{case}: response contract failed ({type(exc).__name__}: {exc}); "
+                    f"response={safe_diagnostic_body(json.dumps(body, default=str))}"
+                )
+                continue
+            passed.append(case)
+    print(f"Production intelligence matrix: {len(passed)}/6 passed; passed={passed}")
+    if failures:
+        pytest.fail("Production intelligence matrix failures:\\n" + "\\n".join(failures))
 
 
 def test_production_web_protected_api_routes_require_authentication() -> None:
