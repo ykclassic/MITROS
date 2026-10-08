@@ -56,7 +56,7 @@ class SupabaseRestProviderConfiguration:
             response.raise_for_status()
             payload = response.json()
         if not isinstance(payload, list):
-            raise RuntimeError(f"Supabase returned a non-list payload for {table}")
+            raise TypeError(f"Supabase returned a non-list payload for {table}")
         return [item for item in payload if isinstance(item, dict)]
 
     async def routes(self, *, asset: str, venue: str, timeframe: str) -> tuple[ProviderRoute, ...]:
