@@ -35,7 +35,7 @@ from packages.features.engine import FeatureEngine
 from packages.intelligence.engine import MarketIntelligenceEngine
 from packages.market_data.cache import AsyncTTLCache
 from packages.market_data.config import MarketDataSettings
-from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, Quote, DataQuality
+from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, DataQuality
 from packages.market_data.ingestion import MarketDataIngestor
 from packages.market_data.service import VerifiedMarketDataService
 from packages.market_data.routing import PostgresProviderConfiguration
