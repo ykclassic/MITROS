@@ -142,8 +142,9 @@ def build_router() -> ProviderRouter:
         KrakenProvider(symbols=symbols),
         CoinbaseProvider(symbols=symbols),
     ]
-    if settings.coingecko_api_key:
-        providers.append(CoinGeckoProvider(api_key=settings.coingecko_api_key, symbols=symbols))
+    providers.append(
+        CoinGeckoProvider(api_key=settings.coingecko_api_key or "", symbols=symbols)
+    )
     return ProviderRouter(providers)
 
 
@@ -234,8 +235,9 @@ async def build_verified_service() -> VerifiedMarketDataService:
         KrakenProvider(symbols=symbols),
         CoinbaseProvider(symbols=symbols),
     ]
-    if settings.coingecko_api_key:
-        providers.append(CoinGeckoProvider(api_key=settings.coingecko_api_key, symbols=symbols))
+    providers.append(
+        CoinGeckoProvider(api_key=settings.coingecko_api_key or "", symbols=symbols)
+    )
 
     supabase_url = os.getenv("SUPABASE_URL", "").strip()
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
@@ -396,11 +398,7 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     async def startup_market_data_diagnostics() -> None:
         settings = get_settings()
-        configured_providers = (
-            "kraken",
-            "coinbase",
-            *(("coingecko",) if settings.coingecko_api_key else ()),
-        )
+        configured_providers = ("kraken", "coinbase", "coingecko")
         database_configured = bool(os.getenv("MITROS_DATABASE_URL", "").strip())
         logger.warning(
             "market_data_configuration providers=%s database_configured=%s freshness_seconds=%s cross_validation_tolerance=%s",

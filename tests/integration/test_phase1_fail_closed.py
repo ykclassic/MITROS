@@ -55,7 +55,7 @@ async def test_conflicting_authoritative_providers_fail_closed() -> None:
     config = StaticProviderConfiguration(
         (
             ProviderRoute("primary", "1", 1, "PRIMARY", True, True, ("1h",), ("spot",)),
-            ProviderRoute("secondary", "1", 2, "SECONDARY", True, False, ("1h",), ("spot",)),
+            ProviderRoute("secondary", "1", 2, "SECONDARY", True, True, ("1h",), ("spot",)),
         )
     )
     with pytest.raises(MarketDataVerificationError) as error:
