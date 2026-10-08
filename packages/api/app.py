@@ -416,9 +416,10 @@ def create_app() -> FastAPI:
                 logger.info("market_data_provider_routes route_counts=%s", route_counts)
             except Exception as exc:
                 logger.error(
-                    "market_data_route_configuration_unavailable category=%s exception_type=%s",
+                    "market_data_route_configuration_unavailable category=%s exception_type=%s sqlstate=%s",
                     _market_data_failure_category(exc),
                     type(exc).__name__,
+                    getattr(exc, "sqlstate", None),
                 )
 
     @app.get("/health", response_model=ApiHealth)
