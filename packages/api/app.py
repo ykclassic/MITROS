@@ -38,7 +38,7 @@ from packages.market_data.config import MarketDataSettings
 from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, DataQuality
 from packages.market_data.ingestion import MarketDataIngestor
 from packages.market_data.service import VerifiedMarketDataService
-from packages.market_data.routing import PostgresProviderConfiguration
+from packages.market_data.routing import PostgresProviderConfiguration, SupabaseRestProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 from packages.market_data.interface import MarketDataProvider
 from packages.market_data.providers import AlphaVantageProvider, FinnhubProvider, TwelveDataProvider
@@ -238,7 +238,12 @@ async def build_verified_service() -> VerifiedMarketDataService:
     if not providers:
         raise RuntimeError("No market-data provider credentials configured")
 
-    configuration = PostgresProviderConfiguration(database_url)
+    supabase_url = os.getenv("SUPABASE_URL", "").strip()
+    service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    if supabase_url and service_role_key:
+        configuration = SupabaseRestProviderConfiguration(supabase_url, service_role_key)
+    else:
+        configuration = PostgresProviderConfiguration(database_url)
     ingestor = MarketDataIngestor(
         providers,
         freshness_seconds=settings.freshness_seconds,
@@ -406,22 +411,34 @@ def create_app() -> FastAPI:
             database_configured,
             settings.freshness_seconds,
         )
-        if database_configured:
-            try:
+        supabase_url = os.getenv("SUPABASE_URL", "").strip()
+        service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        try:
+            if supabase_url and service_role_key:
+                configuration = SupabaseRestProviderConfiguration(supabase_url, service_role_key)
+                configuration_source = "supabase_data_api"
+            elif database_configured:
                 configuration = PostgresProviderConfiguration(os.environ["MITROS_DATABASE_URL"])
-                route_counts = {}
-                for asset in ("BTC/USD", "ETH/USD", "SOL/USD"):
-                    routes = await configuration.routes(asset=asset, venue="spot", timeframe="1h")
-                    route_counts[asset] = len(routes)
-                logger.info("market_data_provider_routes route_counts=%s", route_counts)
-            except Exception as exc:
-                logger.error(
-                    "market_data_route_configuration_unavailable category=%s exception_type=%s sqlstate=%s detail=%s",
-                    _market_data_failure_category(exc),
-                    type(exc).__name__,
-                    getattr(exc, "sqlstate", None),
-                    str(exc).replace(os.getenv("MITROS_DATABASE_URL", ""), "<database-url>").replace("\\n", " ")[:240],
-                )
+                configuration_source = "postgres"
+            else:
+                raise RuntimeError("no provider-route database configuration is available")
+            route_counts = {}
+            for asset in ("BTC/USD", "ETH/USD", "SOL/USD"):
+                routes = await configuration.routes(asset=asset, venue="spot", timeframe="1h")
+                route_counts[asset] = len(routes)
+            logger.warning(
+                "market_data_provider_routes source=%s route_counts=%s",
+                configuration_source,
+                route_counts,
+            )
+        except Exception as exc:
+            logger.error(
+                "market_data_route_configuration_unavailable category=%s exception_type=%s sqlstate=%s detail=%s",
+                _market_data_failure_category(exc),
+                type(exc).__name__,
+                getattr(exc, "sqlstate", None),
+                str(exc).replace(os.getenv("MITROS_DATABASE_URL", ""), "<database-url>").replace("\\n", " ")[:240],
+            )
 
     @app.get("/health", response_model=ApiHealth)
     async def health() -> ApiHealth:
