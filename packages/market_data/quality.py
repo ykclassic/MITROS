@@ -41,6 +41,7 @@ class DataQualityStateMachine:
         now: datetime,
         interval: timedelta,
         max_age_seconds: int,
+        check_freshness: bool = True,
     ) -> QualityAssessment:
         reference = now.astimezone(UTC)
         if candle.open_time > reference:
@@ -54,13 +55,14 @@ class DataQualityStateMachine:
                 ("close_time is in the future; candle is not closed",),
             )
 
-        # Allow one normal candle interval plus the configured grace period.
-        # A closed 1h candle can legitimately be almost 1h old while the next
-        # candle is forming. The grace still rejects genuinely stale datasets.
-        allowed_age_seconds = interval.total_seconds() + max_age_seconds
-        age = (reference - candle.close_time.astimezone(UTC)).total_seconds()
-        if age > allowed_age_seconds:
-            return QualityAssessment(DataQuality.STALE, ("candle exceeds freshness limit",))
+        # Freshness is a dataset-level gate applied to the latest completed
+        # candle. Historical candles remain subject to all integrity checks.
+        if check_freshness:
+            allowed_age_seconds = interval.total_seconds() + max_age_seconds
+            age = (reference - candle.close_time.astimezone(UTC)).total_seconds()
+            if age > allowed_age_seconds:
+                return QualityAssessment(DataQuality.STALE, ("candle exceeds freshness limit",))
+
         if candle.close_time - candle.open_time != interval:
             return QualityAssessment(DataQuality.INVALID, ("candle duration does not match timeframe",))
         if candle.received_at < candle.observed_at:
