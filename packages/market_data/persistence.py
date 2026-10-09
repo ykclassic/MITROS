@@ -278,7 +278,9 @@ class PostgresVerifiedMarketDataRepository:
             await cursor.execute(
                 """insert into features
                    (asset_id,venue_id,timeframe,as_of,feature_set_version,values,provenance)
-                   values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)""",
+                   values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)
+                   on conflict (asset_id,venue_id,timeframe,as_of,feature_set_version)
+                   do update set values=excluded.values,provenance=excluded.provenance""",
                 (identity["asset_id"], identity["venue_id"], timeframe, snapshot.as_of,
                  features.feature_set_version, json.dumps(values),
                  json.dumps(provenance)),
@@ -286,7 +288,10 @@ class PostgresVerifiedMarketDataRepository:
             await cursor.execute(
                 """insert into regimes
                    (asset_id,venue_id,as_of,regime,confidence,version,provenance)
-                   values (%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                   values (%s,%s,%s,%s,%s,%s,%s::jsonb)
+                   on conflict (asset_id,venue_id,as_of,version)
+                   do update set regime=excluded.regime,confidence=excluded.confidence,
+                     provenance=excluded.provenance""",
                 (identity["asset_id"], identity["venue_id"], snapshot.as_of,
                  snapshot.regime.regime.value, snapshot.regime.confidence,
                  snapshot.regime.model_version, json.dumps(provenance)),
@@ -448,16 +453,26 @@ class SupabaseRestVerifiedMarketDataRepository:
             "generated_at": datetime.now(UTC).isoformat(),
         }
         values = {key: str(value) for key, value in features.values.items()}
-        await self._request("POST", "features", payload={
-            "asset_id": asset_id, "venue_id": venue_id, "timeframe": timeframe,
-            "as_of": as_of, "feature_set_version": features.feature_set_version,
-            "values": values, "provenance": provenance,
-        })
-        await self._request("POST", "regimes", payload={
-            "asset_id": asset_id, "venue_id": venue_id, "as_of": as_of,
-            "regime": snapshot.regime.regime.value, "confidence": str(snapshot.regime.confidence),
-            "version": snapshot.regime.model_version, "provenance": provenance,
-        })
+        await self._request(
+            "POST", "features",
+            params={"on_conflict": "asset_id,venue_id,timeframe,as_of,feature_set_version"},
+            payload={
+                "asset_id": asset_id, "venue_id": venue_id, "timeframe": timeframe,
+                "as_of": as_of, "feature_set_version": features.feature_set_version,
+                "values": values, "provenance": provenance,
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
+        await self._request(
+            "POST", "regimes",
+            params={"on_conflict": "asset_id,venue_id,as_of,version"},
+            payload={
+                "asset_id": asset_id, "venue_id": venue_id, "as_of": as_of,
+                "regime": snapshot.regime.regime.value, "confidence": str(snapshot.regime.confidence),
+                "version": snapshot.regime.model_version, "provenance": provenance,
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
         for vote in strategy_votes:
             await self._request(
                 "POST", "strategies",
