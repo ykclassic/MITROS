@@ -41,6 +41,7 @@ from packages.market_data.service import VerifiedMarketDataService
 from packages.market_data.persistence import (
     PostgresVerifiedMarketDataRepository,
     SupabaseRestVerifiedMarketDataRepository,
+    VerifiedMarketDataPersistenceError,
 )
 from packages.market_data.routing import PostgresProviderConfiguration, ProviderConfiguration, SupabaseRestProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
@@ -298,6 +299,8 @@ async def build_intelligence(asset: str, venue: str, timeframe: str) -> Intellig
                     smc_strategy.evaluate(candidate_context),
                     crt_strategy.evaluate(candidate_context),
                 )
+        except VerifiedMarketDataPersistenceError:
+            raise
         except (RuntimeError, ValueError):
             continue
     if not mtf_votes:
