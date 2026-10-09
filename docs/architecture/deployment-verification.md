@@ -41,3 +41,7 @@ Persistence failures remain fail-closed and return an unavailable response rathe
 - Render only: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, database URL and provider credentials.
 
 Do not copy provider credentials or the service-role key into Vercel `NEXT_PUBLIC_*` variables or the repository. Production diagnostics must redact credentials and sensitive response bodies.
+
+## Credential rotation and reruns
+
+After rotating `MITROS_PRODUCTION_ACCESS_TOKEN` in GitHub Actions, rerun the main-branch production E2E gate. The gate must authenticate the full BTC/USD and ETH/USD 15m, 1h, and 4h matrix and verify persisted Phase 1 observations and Phase 2 snapshots; a health check alone is not sufficient. Never print or upload the access token in workflow logs or artifacts.
