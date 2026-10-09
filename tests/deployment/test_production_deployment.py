@@ -18,6 +18,7 @@ pytestmark = pytest.mark.skipif(
 API_URL = os.getenv("MITROS_PRODUCTION_API_URL", "https://mitros.onrender.com").rstrip("/")
 WEB_URL = os.getenv("MITROS_PRODUCTION_WEB_URL", "https://mitros.vercel.app").rstrip("/")
 VERCEL_ORIGIN = os.getenv("MITROS_PRODUCTION_VERCEL_ORIGIN", WEB_URL)
+EXPECTED_COMMIT = os.getenv("MITROS_EXPECTED_COMMIT", "").strip()
 
 def request_json(
     url: str,
@@ -150,8 +151,16 @@ def wait_for_health() -> None:
         try:
             status, body, _ = request_json(f"{API_URL}/health")
             if status == 200 and isinstance(body, dict) and body.get("status") == "ok":
-                return
-            last_error = f"unexpected health response: {status} {body!r}"
+                actual_commit = body.get("build_sha", "unknown")
+                if EXPECTED_COMMIT and actual_commit != EXPECTED_COMMIT:
+                    last_error = (
+                        f"Render is serving commit {actual_commit}; "
+                        f"waiting for expected commit {EXPECTED_COMMIT}"
+                    )
+                else:
+                    return
+            else:
+                last_error = f"unexpected health response: {status} {body!r}"
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             last_error = repr(exc)
         time.sleep(10)

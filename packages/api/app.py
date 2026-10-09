@@ -67,6 +67,7 @@ class ApiHealth(BaseModel):
     status: str
     service: str
     timestamp: datetime
+    build_sha: str
 
 
 class MarketQuoteResponse(BaseModel):
@@ -466,7 +467,12 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=ApiHealth)
     async def health() -> ApiHealth:
-        return ApiHealth(status="ok", service="mitros-api", timestamp=datetime.now(UTC))
+        return ApiHealth(
+            status="ok",
+            service="mitros-api",
+            timestamp=datetime.now(UTC),
+            build_sha=os.getenv("RENDER_GIT_COMMIT", "unknown"),
+        )
 
     @app.get("/api/v1/auth/me", response_model=dict[str, object])
     async def auth_me(user: CurrentUser) -> dict[str, object]:
