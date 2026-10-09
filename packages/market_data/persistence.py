@@ -226,3 +226,153 @@ class PostgresVerifiedMarketDataRepository:
                 observed_at=datetime.fromisoformat(provenance["observed_at"]),
                 received_at=datetime.fromisoformat(provenance["received_at"]),
             )
+
+
+
+class SupabaseRestVerifiedMarketDataRepository:
+    """Supabase Data API implementation of the verified-observation repository."""
+
+    def __init__(self, supabase_url: str, service_role_key: str) -> None:
+        if not supabase_url.strip() or not service_role_key.strip():
+            raise ValueError("Supabase URL and service-role credentials are required")
+        self.base_url = supabase_url.rstrip("/") + "/rest/v1"
+        self._headers = {
+            "apikey": service_role_key,
+            "Authorization": f"Bearer {service_role_key}",
+            "Content-Type": "application/json",
+        }
+
+    async def _request(
+        self, method: str, table: str, *,
+        params: dict[str, str] | None = None,
+        payload: Any = None, prefer: str = "return=minimal",
+    ) -> Any:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.request(
+                method, f"{self.base_url}/{table}", params=params, json=payload,
+                headers={**self._headers, "Prefer": prefer},
+            )
+        if response.is_error:
+            raise VerifiedMarketDataPersistenceError(
+                f"Supabase persistence failed for {table}: HTTP {response.status_code}"
+            )
+        if not response.content:
+            return None
+        try:
+            return response.json()
+        except ValueError:
+            return None
+
+    async def _identity(self, asset: str, venue: str) -> tuple[str, str]:
+        assets = await self._request(
+            "GET", "assets",
+            params={"select": "id", "canonical_symbol": f"eq.{asset}", "active": "eq.true", "limit": "1"},
+        )
+        venues = await self._request(
+            "GET", "venues",
+            params={"select": "id", "name": f"eq.{venue}", "active": "eq.true", "limit": "1"},
+        )
+        if not isinstance(assets, list) or not assets or not isinstance(venues, list) or not venues:
+            raise VerifiedMarketDataPersistenceError("canonical asset/venue reference is missing")
+        return str(assets[0]["id"]), str(venues[0]["id"])
+
+    async def persist_candles(
+        self, candles: Sequence[Candle], *, batch_checksum: str,
+        manifest: Sequence[ObservationManifestEntry],
+    ) -> tuple[UUID, ...]:
+        if not candles or any(c.quality is not DataQuality.VERIFIED or not c.checksum for c in candles):
+            raise VerifiedMarketDataPersistenceError("only checksummed VERIFIED candles may be persisted")
+        asset_id, venue_id = await self._identity(candles[0].asset, candles[0].venue)
+        rows = [{
+            "asset_id": asset_id, "venue_id": venue_id, "timeframe": c.timeframe,
+            "open_time": c.open_time.isoformat(), "close_time": c.close_time.isoformat(),
+            "open": str(c.open), "high": str(c.high), "low": str(c.low), "close": str(c.close),
+            "volume": str(c.volume) if c.volume is not None else None,
+            "data_quality": "VERIFIED", "request_id": str(c.request_id) if c.request_id else None,
+            "checksum": c.checksum,
+            "provenance": {
+                "provider": c.provider, "provider_version": c.provider_version,
+                "symbol": c.symbol, "request_id": str(c.request_id) if c.request_id else None,
+                "observation_checksum": c.checksum, "batch_checksum": batch_checksum,
+                "observed_at": c.observed_at.isoformat(), "received_at": c.received_at.isoformat(),
+            },
+        } for c in candles]
+        await self._request(
+            "POST", "candles", params={"on_conflict": "asset_id,venue_id,timeframe,open_time"},
+            payload=rows, prefer="resolution=merge-duplicates,return=minimal",
+        )
+        latest = candles[-1]
+        await self._request(
+            "POST", "market_data",
+            payload={
+                "asset_id": asset_id, "venue_id": venue_id, "timeframe": latest.timeframe,
+                "observed_at": latest.observed_at.isoformat(), "received_at": latest.received_at.isoformat(),
+                "values": {"count": len(candles), "batch_checksum": batch_checksum},
+                "provenance": {"batch_checksum": batch_checksum, "observation_count": len(candles)},
+                "data_quality": "VERIFIED", "request_id": str(latest.request_id) if latest.request_id else None,
+                "checksum": batch_checksum,
+            },
+        )
+        await self._request(
+            "POST", "market_data_observation_manifests",
+            payload={
+                "asset_id": asset_id, "venue_id": venue_id, "timeframe": latest.timeframe,
+                "request_id": str(latest.request_id) if latest.request_id else None,
+                "batch_checksum": batch_checksum,
+                "manifest": [item.model_dump(mode="json") for item in manifest],
+                "data_quality": "VERIFIED",
+            },
+        )
+        return ()
+
+    async def persist_intelligence(
+        self, *, asset: str, venue: str, timeframe: str, snapshot: Any,
+        features: Any, strategy_votes: Sequence[Any], mtf: Any, batch_checksum: str,
+    ) -> None:
+        asset_id, venue_id = await self._identity(asset, venue)
+        as_of = snapshot.as_of.isoformat()
+        provenance = {
+            "data_quality": "VERIFIED", "batch_checksum": batch_checksum,
+            "input_checksums": list(snapshot.input_checksums),
+            "observation_window": [value.isoformat() for value in snapshot.observation_window],
+            "engine_version": snapshot.engine_version,
+            "configuration_version": snapshot.configuration_version,
+            "snapshot_checksum": snapshot.snapshot_checksum,
+            "generated_at": datetime.now(UTC).isoformat(),
+        }
+        values = {key: str(value) for key, value in features.values.items()}
+        await self._request("POST", "features", payload={
+            "asset_id": asset_id, "venue_id": venue_id, "timeframe": timeframe,
+            "as_of": as_of, "feature_set_version": features.feature_set_version,
+            "values": values, "provenance": provenance,
+        })
+        await self._request("POST", "regimes", payload={
+            "asset_id": asset_id, "venue_id": venue_id, "as_of": as_of,
+            "regime": snapshot.regime.regime.value, "confidence": str(snapshot.regime.confidence),
+            "version": snapshot.regime.model_version, "provenance": provenance,
+        })
+        await self._request(
+            "POST", "intelligence_snapshots",
+            params={"on_conflict": "asset_id,venue_id,timeframe,snapshot_checksum"},
+            payload={
+                "asset_id": asset_id, "venue_id": venue_id, "timeframe": timeframe,
+                "as_of": as_of, "snapshot_checksum": snapshot.snapshot_checksum,
+                "input_checksums": list(snapshot.input_checksums),
+                "engine_version": snapshot.engine_version,
+                "configuration_version": snapshot.configuration_version,
+                "observation_window": provenance["observation_window"],
+                "payload": {
+                    "quantitative": snapshot.quantitative.model_dump(mode="json"),
+                    "structure": snapshot.structure.model_dump(mode="json"),
+                    "liquidity": snapshot.liquidity.model_dump(mode="json"),
+                    "smc": snapshot.smc.model_dump(mode="json"),
+                    "crt": snapshot.crt.model_dump(mode="json"),
+                    "regime": snapshot.regime.model_dump(mode="json"),
+                    "features": values,
+                    "strategy_votes": [item.model_dump(mode="json") for item in strategy_votes],
+                    "mtf": mtf.model_dump(mode="json"),
+                },
+                "provenance": provenance,
+            },
+            prefer="resolution=merge-duplicates,return=minimal",
+        )
