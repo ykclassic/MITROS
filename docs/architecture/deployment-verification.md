@@ -2,32 +2,42 @@
 
 MITROS production has two public boundaries:
 
-- Vercel: `https://mitros.vercel.app`
+- Vercel frontend: `https://mitros.vercel.app`
 - Render API: `https://mitros.onrender.com`
 
-The browser-facing `NEXT_PUBLIC_MITROS_API_URL` must resolve to the Render API. Provider credentials are never valid browser configuration; the only public frontend environment value required for this integration is the API URL.
+The browser-facing `NEXT_PUBLIC_MITROS_API_URL` must resolve to the Render API. Provider credentials and the Supabase service-role key must remain server-side.
 
-## Verification contract
+## Required end-to-end verification
 
 The production E2E suite in `tests/deployment/test_production_deployment.py` verifies:
 
-1. Vercel is reachable.
-2. Render health is reachable.
-3. Render CORS explicitly permits the production Vercel origin.
-4. CORS preflight for the quote endpoint succeeds.
-5. All three configured providers (Twelve Data, Finnhub, Alpha Vantage) are present at runtime without exposing whether the credential value itself is secret. Provider availability is recorded by the same endpoint; transient provider-side rate limits do not make credential configuration appear missing.
-6. BTC/USD and ETH/USD return a positive price, provider provenance, provider quote timestamp, receipt timestamp, and `VERIFIED` quality.
-7. When the optional `MITROS_PRODUCTION_ACCESS_TOKEN` GitHub Actions secret is configured, authenticated Phase 2 E2E verifies BTC/USD, ETH/USD and SOL/USD across 15m, 1h and 4h. Each snapshot must be `VERIFIED` and expose snapshot checksum, input checksums, engine/configuration versions, observation window, generated timestamp and provenance.
-8. Trade probability is not exposed by the Phase 2 snapshot contract until statistically calibrated resolved outcomes exist.
-9. The Vercel HTML does not expose provider credential variable names or common credential material.
-10. The production URL contract remains explicit, so a deployment URL change forces a test update.
+1. Vercel's public login page is reachable and protected product pages do not bypass authentication.
+2. Render health is reachable and returns `200`.
+3. Render CORS explicitly permits the production Vercel origin and quote-route preflight succeeds.
+4. Unauthenticated backend product routes return `401`.
+5. Public Coinbase Advanced and Kraken OHLC endpoints return non-empty candles for BTC/USD and ETH/USD across 15m, 1h and 4h.
+6. The authenticated Phase 2 matrix returns BTC/USD and ETH/USD snapshots across 15m, 1h and 4h. Every case must return `200`, `VERIFIED` quality, allowed provider provenance, a batch checksum, observation checksums, snapshot checksum, input checksums, engine/configuration versions and an observation window.
+7. Trade probability is not exposed until statistically calibrated resolved outcomes exist.
+8. Browser HTML does not expose provider credential names or common credential material.
 
-The market UI fetches BTC/USD and ETH/USD independently. One asset failure no longer suppresses the other asset's result, and each failed row reports its own sanitized HTTP/API failure state.
+The authenticated matrix requires the `MITROS_PRODUCTION_ACCESS_TOKEN` GitHub Actions secret. The test fails if that secret is absent; it must never silently skip the authenticated production gate.
+
+## Persistence contract
+
+A successful verified Phase 1 batch must be durably persisted before the API reports success. A successful Phase 2 snapshot must persist:
+
+- canonical candles and market-data observations;
+- observation manifests with checksums and provider provenance;
+- versioned feature and regime snapshots;
+- strategy signals and multi-timeframe evidence;
+- a versioned intelligence snapshot with input checksums, engine/configuration versions, observation window and provenance.
+
+Persistence failures remain fail-closed and return an unavailable response rather than an unpersisted success.
 
 ## Environment boundaries
 
 - Vercel: `NEXT_PUBLIC_MITROS_API_URL=https://mitros.onrender.com`
 - Render: `MITROS_ALLOWED_ORIGINS=https://mitros.vercel.app,...`
-- Render only: `MITROS_MARKET_TWELVEDATA_API_KEY`, `MITROS_MARKET_FINNHUB_API_KEY`, `MITROS_MARKET_ALPHAVANTAGE_API_KEY`
+- Render only: `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, database URL and provider credentials.
 
-Do not copy provider credentials into Vercel `NEXT_PUBLIC_*` variables or the repository.
+Do not copy provider credentials or the service-role key into Vercel `NEXT_PUBLIC_*` variables or the repository. Production diagnostics must redact credentials and sensitive response bodies.
