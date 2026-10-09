@@ -1,3 +1,5 @@
+import pytest
+
 from packages.market_data.persistence import (
     PostgresVerifiedMarketDataRepository,
     SupabaseRestVerifiedMarketDataRepository,
@@ -5,6 +7,7 @@ from packages.market_data.persistence import (
 )
 
 
+@pytest.mark.asyncio
 async def test_postgres_persistence_refuses_empty_batch_before_connecting() -> None:
     repository = PostgresVerifiedMarketDataRepository("postgresql://unused")
     try:
@@ -15,6 +18,7 @@ async def test_postgres_persistence_refuses_empty_batch_before_connecting() -> N
         raise AssertionError("empty batch must fail closed")
 
 
+@pytest.mark.asyncio
 async def test_supabase_persistence_refuses_empty_batch_before_network_io() -> None:
     repository = SupabaseRestVerifiedMarketDataRepository(
         "https://example.supabase.co", "not-a-real-key"
