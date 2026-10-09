@@ -230,6 +230,79 @@ class PostgresVerifiedMarketDataRepository:
 
 
 
+    async def persist_intelligence(
+        self, *, asset: str, venue: str, timeframe: str, snapshot: Any,
+        features: Any, strategy_votes: Sequence[Any], mtf: Any, batch_checksum: str,
+    ) -> None:
+        provenance = {
+            "data_quality": "VERIFIED",
+            "batch_checksum": batch_checksum,
+            "input_checksums": list(snapshot.input_checksums),
+            "observation_window": [value.isoformat() for value in snapshot.observation_window],
+            "engine_version": snapshot.engine_version,
+            "configuration_version": snapshot.configuration_version,
+            "snapshot_checksum": snapshot.snapshot_checksum,
+            "generated_at": datetime.now().astimezone().isoformat(),
+        }
+        values = {key: str(value) for key, value in features.values.items()}
+        payload = {
+            "quantitative": snapshot.quantitative.model_dump(mode="json"),
+            "structure": snapshot.structure.model_dump(mode="json"),
+            "liquidity": snapshot.liquidity.model_dump(mode="json"),
+            "smc": snapshot.smc.model_dump(mode="json"),
+            "crt": snapshot.crt.model_dump(mode="json"),
+            "regime": snapshot.regime.model_dump(mode="json"),
+            "features": values,
+            "strategy_votes": [item.model_dump(mode="json") for item in strategy_votes],
+            "mtf": mtf.model_dump(mode="json"),
+        }
+        async with await psycopg.AsyncConnection.connect(
+            self.database_url, row_factory=dict_row
+        ) as connection, connection.cursor() as cursor:
+            await cursor.execute(
+                """select a.id as asset_id, v.id as venue_id
+                   from assets a cross join venues v
+                   where a.canonical_symbol=%s and v.name=%s
+                     and a.active=true and v.active=true""",
+                (asset, venue),
+            )
+            identity = await cursor.fetchone()
+            if identity is None:
+                raise VerifiedMarketDataPersistenceError(
+                    "canonical asset/venue reference is missing"
+                )
+            await cursor.execute(
+                """insert into features
+                   (asset_id,venue_id,timeframe,as_of,feature_set_version,values,provenance)
+                   values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb)""",
+                (identity["asset_id"], identity["venue_id"], timeframe, snapshot.as_of,
+                 features.feature_set_version, json.dumps(values),
+                 json.dumps(provenance)),
+            )
+            await cursor.execute(
+                """insert into regimes
+                   (asset_id,venue_id,as_of,regime,confidence,version,provenance)
+                   values (%s,%s,%s,%s,%s,%s,%s::jsonb)""",
+                (identity["asset_id"], identity["venue_id"], snapshot.as_of,
+                 snapshot.regime.regime.value, snapshot.regime.confidence,
+                 snapshot.regime.model_version, json.dumps(provenance)),
+            )
+            await cursor.execute(
+                """insert into intelligence_snapshots
+                   (asset_id,venue_id,timeframe,as_of,snapshot_checksum,input_checksums,
+                    engine_version,configuration_version,observation_window,payload,provenance)
+                   values (%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
+                   on conflict (asset_id,venue_id,timeframe,snapshot_checksum)
+                   do update set payload=excluded.payload,provenance=excluded.provenance""",
+                (identity["asset_id"], identity["venue_id"], timeframe, snapshot.as_of,
+                 snapshot.snapshot_checksum, list(snapshot.input_checksums),
+                 snapshot.engine_version, snapshot.configuration_version,
+                 json.dumps(provenance["observation_window"]), json.dumps(payload, default=str),
+                 json.dumps(provenance)),
+            )
+            await connection.commit()
+
+
 class SupabaseRestVerifiedMarketDataRepository:
     """Supabase Data API implementation of the verified-observation repository."""
 
