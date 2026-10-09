@@ -291,6 +291,33 @@ class PostgresVerifiedMarketDataRepository:
                  snapshot.regime.regime.value, snapshot.regime.confidence,
                  snapshot.regime.model_version, json.dumps(provenance)),
             )
+            for vote in strategy_votes:
+                await cursor.execute(
+                    """insert into strategies (strategy_key,name,version,active)
+                       values (%s,%s,%s,true)
+                       on conflict (strategy_key) do update set
+                         name=excluded.name, version=excluded.version, active=true
+                       returning id""",
+                    (vote.strategy_id, vote.strategy_id, vote.strategy_version),
+                )
+                strategy_row = await cursor.fetchone()
+                if strategy_row is None:
+                    raise VerifiedMarketDataPersistenceError("strategy identity was not persisted")
+                await cursor.execute(
+                    """insert into strategy_signals
+                       (strategy_id,asset_id,venue_id,direction,confidence,payload,observed_at,provenance)
+                       values (%s,%s,%s,%s,%s,%s::jsonb,%s,%s::jsonb)""",
+                    (
+                        strategy_row["id"], identity["asset_id"], identity["venue_id"],
+                        vote.direction.value if vote.direction else None, vote.confidence,
+                        json.dumps({
+                            "vote": vote.model_dump(mode="json"),
+                            "snapshot_checksum": snapshot.snapshot_checksum,
+                            "mtf": mtf.model_dump(mode="json"),
+                        }),
+                        snapshot.as_of, json.dumps(provenance),
+                    ),
+                )
             await cursor.execute(
                 """insert into intelligence_snapshots
                    (asset_id,venue_id,timeframe,as_of,snapshot_checksum,input_checksums,
@@ -431,6 +458,38 @@ class SupabaseRestVerifiedMarketDataRepository:
             "regime": snapshot.regime.regime.value, "confidence": str(snapshot.regime.confidence),
             "version": snapshot.regime.model_version, "provenance": provenance,
         })
+        for vote in strategy_votes:
+            await self._request(
+                "POST", "strategies",
+                params={"on_conflict": "strategy_key"},
+                payload={
+                    "strategy_key": vote.strategy_id, "name": vote.strategy_id,
+                    "version": vote.strategy_version, "active": True,
+                },
+                prefer="resolution=merge-duplicates,return=minimal",
+            )
+            strategy_rows = await self._request(
+                "GET", "strategies",
+                params={"select": "id", "strategy_key": f"eq.{vote.strategy_id}", "limit": "1"},
+            )
+            if not isinstance(strategy_rows, list) or not strategy_rows:
+                raise VerifiedMarketDataPersistenceError("strategy identity was not persisted")
+            await self._request(
+                "POST", "strategy_signals",
+                payload={
+                    "strategy_id": strategy_rows[0]["id"],
+                    "asset_id": asset_id, "venue_id": venue_id,
+                    "direction": vote.direction.value if vote.direction else None,
+                    "confidence": str(vote.confidence),
+                    "payload": {
+                        "vote": vote.model_dump(mode="json"),
+                        "snapshot_checksum": snapshot.snapshot_checksum,
+                        "mtf": mtf.model_dump(mode="json"),
+                    },
+                    "observed_at": as_of,
+                    "provenance": provenance,
+                },
+            )
         await self._request(
             "POST", "intelligence_snapshots",
             params={"on_conflict": "asset_id,venue_id,timeframe,snapshot_checksum"},
