@@ -15,6 +15,12 @@ create table if not exists intelligence_snapshots (
     unique(asset_id, venue_id, timeframe, snapshot_checksum)
 );
 
+create unique index if not exists idx_features_snapshot_identity
+    on features(asset_id, venue_id, timeframe, as_of, feature_set_version);
+
+create unique index if not exists idx_regimes_snapshot_identity
+    on regimes(asset_id, venue_id, as_of, version);
+
 create index if not exists idx_intelligence_snapshots_lookup
     on intelligence_snapshots(asset_id, venue_id, timeframe, as_of desc);
 
