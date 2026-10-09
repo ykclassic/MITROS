@@ -309,7 +309,10 @@ def test_live_exchange_provider_matrix() -> None:
 def test_authenticated_production_phase2_snapshots() -> None:
     access_token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
     if not access_token:
-        pytest.skip("MITROS_PRODUCTION_ACCESS_TOKEN is not configured for authenticated production E2E")
+        pytest.fail(
+            "MITROS_PRODUCTION_ACCESS_TOKEN is required; authenticated production "
+            "verification must not be silently skipped"
+        )
 
     headers = {"Authorization": f"Bearer {access_token}"}
     failures: list[str] = []
