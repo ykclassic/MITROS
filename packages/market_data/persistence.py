@@ -391,6 +391,7 @@ class SupabaseRestVerifiedMarketDataRepository:
                 "data_quality": "VERIFIED", "request_id": str(latest.request_id) if latest.request_id else None,
                 "checksum": batch_checksum,
             },
+            prefer="resolution=merge-duplicates,return=minimal",
         )
         await self._request(
             "POST", "market_data_observation_manifests",
