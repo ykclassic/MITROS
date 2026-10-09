@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from uuid import uuid4
+from typing import Any
 
 from contracts.events import EventEnvelope, EventType
 
@@ -29,9 +30,13 @@ class VerifiedMarketDataBatch:
 class VerifiedMarketDataService:
     """Fail-closed Phase 1 boundary for canonical, provenance-bearing candles."""
 
-    def __init__(self, ingestor: MarketDataIngestor, *, producer_version: str) -> None:
+    def __init__(
+        self, ingestor: MarketDataIngestor, *, producer_version: str,
+        persistence: Any | None = None,
+    ) -> None:
         self.ingestor = ingestor
         self.producer_version = producer_version
+        self.persistence = persistence
 
     async def candles(
         self,
@@ -83,9 +88,14 @@ class VerifiedMarketDataService:
                 for item in verified
             ],
         )
-        return VerifiedMarketDataBatch(
+        batch = VerifiedMarketDataBatch(
             candles=verified,
             event=event,
             manifest=manifest,
             batch_checksum=batch_checksum,
         )
+        if self.persistence is not None:
+            await self.persistence.persist_candles(
+                verified, batch_checksum=batch_checksum, manifest=manifest
+            )
+        return batch

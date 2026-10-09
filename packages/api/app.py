@@ -38,6 +38,11 @@ from packages.market_data.config import MarketDataSettings
 from packages.market_data.contracts import Candle, MarketDataRequest, ProviderHealth, DataQuality
 from packages.market_data.ingestion import MarketDataIngestor
 from packages.market_data.service import VerifiedMarketDataService
+from packages.market_data.persistence import (
+    PostgresVerifiedMarketDataRepository,
+    SupabaseRestVerifiedMarketDataRepository,
+    VerifiedMarketDataPersistenceError,
+)
 from packages.market_data.routing import PostgresProviderConfiguration, ProviderConfiguration, SupabaseRestProviderConfiguration
 from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 from packages.market_data.interface import MarketDataProvider
@@ -252,7 +257,14 @@ async def build_verified_service() -> VerifiedMarketDataService:
         configuration=configuration,
         cross_validation_tolerance=Decimal(settings.cross_validation_tolerance),
     )
-    return VerifiedMarketDataService(ingestor, producer_version="0.6.0")
+    persistence = (
+        SupabaseRestVerifiedMarketDataRepository(supabase_url, service_role_key)
+        if supabase_url and service_role_key
+        else PostgresVerifiedMarketDataRepository(database_url)
+    )
+    return VerifiedMarketDataService(
+        ingestor, producer_version="0.7.0", persistence=persistence
+    )
 
 
 async def build_intelligence(asset: str, venue: str, timeframe: str) -> IntelligenceSnapshotResponse:
@@ -287,11 +299,27 @@ async def build_intelligence(asset: str, venue: str, timeframe: str) -> Intellig
                     smc_strategy.evaluate(candidate_context),
                     crt_strategy.evaluate(candidate_context),
                 )
+        except VerifiedMarketDataPersistenceError:
+            raise
         except (RuntimeError, ValueError):
             continue
     if not mtf_votes:
         mtf_votes = {timeframe: votes}
     mtf = consensus_engine.combine_mtf(mtf_votes)
+
+    # Persist the exact deterministic analytical artifacts before returning them.
+    # Persistence errors propagate to the route and preserve fail-closed behavior.
+    if service.persistence is not None and hasattr(service.persistence, "persist_intelligence"):
+        await service.persistence.persist_intelligence(
+            asset=asset,
+            venue=venue,
+            timeframe=timeframe,
+            snapshot=snapshot,
+            features=features,
+            strategy_votes=votes,
+            mtf=mtf,
+            batch_checksum=batch.batch_checksum,
+        )
 
     provenance = IntelligenceProvenanceResponse(
         data_quality=DataQuality.VERIFIED,
