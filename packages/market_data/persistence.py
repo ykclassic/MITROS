@@ -160,6 +160,10 @@ class PostgresVerifiedMarketDataRepository:
                     %s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,
                     'VERIFIED',%s,%s
                 )
+                on conflict (asset_id, venue_id, timeframe, observed_at)
+                do update set received_at=excluded.received_at, values=excluded.values,
+                    provenance=excluded.provenance, data_quality=excluded.data_quality,
+                    request_id=excluded.request_id, checksum=excluded.checksum
                 """,
                 (
                     identity["asset_id"],
@@ -242,7 +246,7 @@ class PostgresVerifiedMarketDataRepository:
             "engine_version": snapshot.engine_version,
             "configuration_version": snapshot.configuration_version,
             "snapshot_checksum": snapshot.snapshot_checksum,
-            "generated_at": datetime.now().astimezone().isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         values = {key: str(value) for key, value in features.values.items()}
         payload = {
@@ -378,6 +382,7 @@ class SupabaseRestVerifiedMarketDataRepository:
         latest = candles[-1]
         await self._request(
             "POST", "market_data",
+            params={"on_conflict": "asset_id,venue_id,timeframe,observed_at"},
             payload={
                 "asset_id": asset_id, "venue_id": venue_id, "timeframe": latest.timeframe,
                 "observed_at": latest.observed_at.isoformat(), "received_at": latest.received_at.isoformat(),
