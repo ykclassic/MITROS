@@ -275,3 +275,61 @@ def test_rejected_phase4_decision_never_persists_a_trade_proposal(monkeypatch) -
     assert result.status_code == 409
     assert not fake.created
     assert result.json()["detail"]["audit_id"] == response.audit_id
+
+
+
+def test_rejected_execution_revalidation_cannot_reserve_or_submit_order(monkeypatch) -> None:
+    from decimal import Decimal
+    from contracts.domain import ApprovalStatus, ExecutionStatus
+    from contracts.phase4_risk import RiskDisposition
+    from packages.api import app as api_module
+    from packages.execution.security import approval_token_digest
+    from packages.risk.phase4 import IndependentRiskGate
+
+    _, policy, request, _, pending = _phase4_proposal_fixture()
+    proposal = pending.model_copy(update={
+        "approval_status": ApprovalStatus.APPROVED,
+        "approval_actor": TEST_USER.user_id,
+        "approval_at": request.as_of,
+        "execution_status": ExecutionStatus.NOT_AUTHORIZED,
+    })
+    rejected_request = request.model_copy(update={"daily_pnl": Decimal("-500")})
+    rejected_decision = IndependentRiskGate(policy).evaluate(rejected_request)
+    assert rejected_decision.disposition is RiskDisposition.REJECTED
+    response = api_module.Phase4RiskEvaluationResponse(
+        scope="XT_ACCOUNT", audit_id="00000000-0000-0000-0000-000000000058",
+        account_snapshot_id="snapshot-latest", market_evidence={}, decision=rejected_decision,
+    )
+    token = "phase4-human-approval-token"
+
+    class FakeRepository:
+        def __init__(self, database_url: str) -> None:
+            self.reserved = False
+
+        async def get(self, *, user_id: str, proposal_id):
+            return proposal
+
+        async def approval_digest(self, *, user_id: str, proposal_id):
+            return approval_token_digest(token)
+
+        async def reserve_execution(self, **kwargs) -> None:
+            self.reserved = True
+
+    fake = FakeRepository("unused")
+
+    async def evaluate(*args, **kwargs):
+        return response, rejected_request, policy
+
+    monkeypatch.setenv("MITROS_DATABASE_URL", "postgresql://unused/test")
+    monkeypatch.setattr(api_module, "PostgresPhase4ProposalRepository", lambda database_url: fake)
+    monkeypatch.setattr(api_module, "_evaluate_phase4_intent", evaluate)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        result = TestClient(app).post(
+            f"/api/v1/proposals/{proposal.id}/execute",
+            json={"approval_token": token},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert result.status_code == 409
+    assert not fake.reserved
