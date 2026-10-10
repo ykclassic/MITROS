@@ -29,7 +29,7 @@ from packages.api.auth import AuthenticatedUser, require_user
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.regime import RegimeSnapshot, StatisticalSnapshot
 from contracts.research import ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
-from contracts.domain import StrategyVote
+from contracts.domain import Direction, StrategyVote
 from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
 from packages.features.engine import FeatureEngine
 from packages.intelligence.engine import MarketIntelligenceEngine
@@ -56,6 +56,8 @@ from packages.risk.engine import AdvancedRiskEngine
 from contracts.phase4_risk import RiskDecisionResult, RiskEvaluationRequest, RiskPolicy
 from packages.risk.phase4 import IndependentRiskGate
 from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
+from packages.exchanges.xt import XTSpotClient, XTSpotError
+from packages.risk.account_state import PostgresXTPortfolioRepository, PortfolioSnapshotError
 from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
@@ -66,14 +68,22 @@ CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 logger = logging.getLogger("mitros.api")
 
 
-class Phase4RiskEvaluationPayload(BaseModel):
-    request: RiskEvaluationRequest
+class Phase4RiskIntent(BaseModel):
+    proposal_id: str = Field(min_length=1, max_length=100)
+    asset: str = Field(pattern=r"^[A-Z0-9]+/USDT$")
+    direction: Direction
+    entry: Decimal | None = Field(default=None, gt=0)
+    stop_loss: Decimal = Field(gt=0)
+    take_profit: Decimal = Field(gt=0)
+    requested_notional: Decimal = Field(gt=0)
     idempotency_key: str = Field(min_length=8, max_length=200)
 
 
 class Phase4RiskEvaluationResponse(BaseModel):
     scope: str
     audit_id: str
+    account_snapshot_id: str
+    market_evidence: dict[str, object]
     decision: RiskDecisionResult
 
 
@@ -178,6 +188,16 @@ async def load_candles(asset: str, venue: str, timeframe: str, limit: int) -> li
         return list(batch.candles)
 
     return await candle_cache.get_or_load(key, fetch)
+
+
+def _phase4_correlation_group(asset: str) -> str:
+    base = asset.split("/", maxsplit=1)[0].upper()
+    groups = {
+        "BTC": "BTC-beta", "ETH": "ETH-beta", "SOL": "SOL-beta",
+        "BNB": "BNB-beta", "XRP": "XRP-beta", "ADA": "ADA-beta",
+        "DOGE": "DOGE-beta", "LINK": "LINK-beta", "LTC": "LTC-beta",
+    }
+    return groups.get(base, f"{base}-spot")
 
 
 def _statistical_snapshot(candles: list[Candle]) -> StatisticalSnapshot:
@@ -609,29 +629,15 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/v1/risk/phase4/scenario", response_model=Phase4RiskEvaluationResponse)
-    async def phase4_risk_scenario(
-        payload: Phase4RiskEvaluationPayload,
+    @app.post("/api/v1/risk/phase4/evaluate", response_model=Phase4RiskEvaluationResponse)
+    async def phase4_risk_evaluate(
+        payload: Phase4RiskIntent,
         user: CurrentUser,
         request_id: str | None = None,
     ) -> Phase4RiskEvaluationResponse:
-        # Caller-supplied portfolio state is never accepted as live account state.
-        # Keep the route unavailable in live mode until an authoritative account adapter exists.
-        try:
-            execution_config = ProductionConfig.from_env()
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=503,
-                detail="Execution configuration is invalid; Phase 4 evaluation is disabled",
-            ) from exc
-        if execution_config.execution_mode.value == "live" or execution_config.live_trading_enabled:
-            raise HTTPException(
-                status_code=503,
-                detail="Phase 4 evaluation is disabled in live mode until authoritative account-state integration is configured",
-            )
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
-            raise HTTPException(status_code=503, detail="Durable risk-decision audit storage is unavailable")
+            raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
 
         try:
             policy = RiskPolicy(
@@ -650,6 +656,7 @@ def create_app() -> FastAPI:
                 min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
                 max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
             )
+            expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
         except (KeyError, ValueError) as exc:
             logger.error("phase4_risk_policy_configuration_invalid")
             raise HTTPException(
@@ -657,28 +664,95 @@ def create_app() -> FastAPI:
                 detail="Phase 4 risk policy is not completely configured",
             ) from exc
 
+        xt = XTSpotClient()
         try:
-            decision = IndependentRiskGate(policy).evaluate(payload.request)
+            # XT is the account/portfolio authority for this building phase.
+            xt_account = await xt.account_snapshot()
+            btc_usdt_price = await xt.btc_usdt_price()
+            account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
+                user_id=user.user_id,
+                account=xt_account,
+                btc_usdt_price=btc_usdt_price,
+            )
+
+            # Proposal evidence must independently pass the verified market-data pipeline.
+            batch = await (await build_verified_service()).candles(
+                MarketDataRequest(asset=payload.asset, venue="spot", timeframe="1m", limit=2)
+            )
+            if not batch.candles or any(c.quality is not DataQuality.VERIFIED for c in batch.candles):
+                raise RuntimeError("verified market-data evidence unavailable")
+            latest_candle = max(batch.candles, key=lambda candle: candle.close_time)
+            ticker = await xt.market_ticker(payload.asset)
+            bid = Decimal(str(ticker["bid"]))
+            ask = Decimal(str(ticker["ask"]))
+            mid = (bid + ask) / Decimal("2")
+            spread_fraction = (ask - bid) / mid
+            entry = payload.entry if payload.entry is not None else Decimal(str(ticker["last"]))
+            correlated_group = _phase4_correlation_group(payload.asset)
+            request = RiskEvaluationRequest(
+                proposal_id=payload.proposal_id,
+                asset=payload.asset,
+                correlated_group=correlated_group,
+                direction=payload.direction,
+                as_of=datetime.now(UTC),
+                quote_observed_at=ticker["observed_at"],
+                data_verified=True,
+                data_quality=Decimal("1"),
+                equity=account_state["equity"],
+                daily_pnl=account_state["daily_pnl"],
+                peak_equity=account_state["peak_equity"],
+                open_positions=account_state["open_positions"],
+                requested_notional=payload.requested_notional,
+                entry=entry,
+                stop_loss=payload.stop_loss,
+                take_profit=payload.take_profit,
+                spread_fraction=spread_fraction,
+                expected_slippage_fraction=expected_slippage,
+            )
+            decision = IndependentRiskGate(policy).evaluate(request)
             from uuid import UUID, uuid4
             correlation_id = UUID(request_id) if request_id else uuid4()
             row = await PostgresPhase4RiskDecisionRepository(database_url).record(
                 user_id=user.user_id,
                 idempotency_key=payload.idempotency_key,
-                request=payload.request,
+                request=request,
                 policy=policy,
                 decision=decision,
                 correlation_id=correlation_id,
             )
-        except (ValueError, RiskDecisionPersistenceError) as exc:
-            logger.warning("phase4_risk_evaluation_rejected category=%s", type(exc).__name__)
-            raise HTTPException(status_code=422, detail="Phase 4 risk evaluation could not be recorded") from exc
-        except Exception as exc:
-            logger.error("phase4_risk_audit_unavailable error_type=%s", type(exc).__name__)
+        except (XTSpotError, PortfolioSnapshotError, RuntimeError, ValueError) as exc:
+            logger.warning("phase4_risk_evaluation_unavailable category=%s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503,
+                detail="XT account state or verified market-data evidence is unavailable",
+            ) from exc
+        except RiskDecisionPersistenceError as exc:
+            logger.error("phase4_risk_audit_unavailable")
             raise HTTPException(status_code=503, detail="Risk decision audit storage is unavailable") from exc
+        except Exception as exc:
+            logger.error("phase4_risk_evaluation_failed category=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Phase 4 risk evaluation is unavailable") from exc
 
         return Phase4RiskEvaluationResponse(
-            scope="SCENARIO_ONLY",
+            scope="XT_ACCOUNT",
             audit_id=str(row["id"]),
+            account_snapshot_id=account_state["snapshot_id"],
+            market_evidence={
+                "provider": latest_candle.provider,
+                "provider_version": latest_candle.provider_version or "unknown",
+                "asset": payload.asset,
+                "venue": latest_candle.venue,
+                "timeframe": latest_candle.timeframe,
+                "latest_verified_close": str(latest_candle.close),
+                "candle_observed_at": latest_candle.observed_at.isoformat(),
+                "candle_received_at": latest_candle.received_at.isoformat(),
+                "batch_checksum": batch.batch_checksum,
+                "xt_bid": str(bid),
+                "xt_ask": str(ask),
+                "xt_last": str(ticker["last"]),
+                "spread_fraction": str(spread_fraction),
+                "quote_observed_at": ticker["observed_at"].isoformat(),
+            },
             decision=decision,
         )
 
