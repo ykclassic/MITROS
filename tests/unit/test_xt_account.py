@@ -57,8 +57,10 @@ async def test_xt_account_snapshot_parses_signed_spot_balances() -> None:
 
 def test_xt_signature_matches_documented_canonical_material() -> None:
     xt = XTSpotClient(api_key="app-key", api_secret="secret", base_url="https://xt.test")
-    headers = xt._headers("GET", "/spot/v4/balances", "currencies=btc", "")
-    timestamp = headers["validate-timestamp"]
+    import time
+
+    timestamp = str(int(time.time() * 1000))
+    headers = xt._headers("GET", "/spot/v4/balances", timestamp, "currencies=btc", "")
     material = (
         f"xt-validate-algorithms=HmacSHA256&xt-validate-appkey=app-key"
         f"&xt-validate-recvwindow=5000&xt-validate-timestamp={timestamp}"
