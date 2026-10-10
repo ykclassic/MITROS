@@ -32,6 +32,7 @@ class RiskPolicy(BaseModel):
     max_slippage_fraction: Decimal = Field(ge=0, lt=1)
     min_data_quality: Decimal = Field(ge=0, le=1)
     max_quote_age_seconds: int = Field(gt=0)
+    max_account_age_seconds: int = Field(gt=0)
     max_market_price_deviation_fraction: Decimal = Field(default=Decimal("0.01"), ge=0, lt=1)
 
 class RiskEvaluationRequest(BaseModel):
