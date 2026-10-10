@@ -123,13 +123,13 @@ class PostgresPhase4ProposalRepository:
 
     async def record_approval(
         self, *, user_id: str, proposal: TradeProposal, actor: str, reason: str,
-        idempotency_key: str, token_digest: str, decided_at: datetime,
+        idempotency_key: str, token_digest: str, decided_at: datetime, risk_audit_id: UUID,
     ) -> None:
         if proposal.approval_status is not ApprovalStatus.PENDING:
             raise ValueError("proposal is no longer pending")
         metadata = json.dumps({
             "reason": reason, "approval_token_digest": token_digest,
-            "phase4_revalidated": True,
+            "phase4_revalidated": True, "risk_revalidation_audit_id": str(risk_audit_id),
         })
         try:
             async with await psycopg.AsyncConnection.connect(
