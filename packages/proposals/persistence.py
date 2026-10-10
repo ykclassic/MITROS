@@ -229,7 +229,7 @@ class PostgresPhase4ProposalRepository:
     async def mark_execution_unknown(self, *, user_id: str, proposal_id: UUID, reason: str) -> None:
         try:
             async with await psycopg.AsyncConnection.connect(
-                self.database_url, row_factory=dict
+                self.database_url, row_factory=dict_row
             ) as connection, connection.transaction(), connection.cursor() as cursor:
                 await cursor.execute(
                     """
