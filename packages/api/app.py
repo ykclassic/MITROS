@@ -31,7 +31,6 @@ from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.regime import RegimeSnapshot, StatisticalSnapshot
 from contracts.research import ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
 from contracts.domain import Direction, StrategyVote, TradeProposal
-from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
 from packages.features.engine import FeatureEngine
 from packages.intelligence.engine import MarketIntelligenceEngine
 from packages.market_data.cache import AsyncTTLCache
@@ -53,7 +52,6 @@ from packages.market_data.symbols import SymbolMapper
 from packages.operations.config import ProductionConfig
 from packages.research.copilot import GroundedResearchCopilot
 from packages.research.platform import ResearchPlatform
-from packages.risk.engine import AdvancedRiskEngine
 from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvaluationRequest, RiskPolicy
 from packages.risk.phase4 import IndependentRiskGate
 from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
