@@ -238,6 +238,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
     id = "coinbase"
     version = "v2-advanced-public"
     _GRANULARITY: ClassVar[dict[str, str]] = {
+        "1m": "ONE_MINUTE",
         "15m": "FIFTEEN_MINUTE",
         "1h": "ONE_HOUR",
         "4h": "ONE_HOUR",
@@ -261,7 +262,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
         # The API validates the start/end span against the selected
         # granularity. Calculate the window in candle units, not hours:
         # request.limit 15m candles must span request.limit * 900 seconds.
-        seconds_per_candle = 900 if timeframe == "15m" else 3600
+        seconds_per_candle = 60 if timeframe == "1m" else (900 if timeframe == "15m" else 3600)
         candle_count = request.limit * (4 if timeframe == "4h" else 1)
         if timeframe == "4h":
             # Reconstruct 4h candles from complete hourly groups while staying
@@ -284,7 +285,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
         if not isinstance(rows, list) or not rows:
             raise RuntimeError("Coinbase returned no candle rows")
         parsed: list[Candle] = []
-        interval_seconds = 900 if timeframe == "15m" else 3600
+        interval_seconds = 60 if timeframe == "1m" else (900 if timeframe == "15m" else 3600)
         for row in rows:
             if not isinstance(row, dict):
                 continue
@@ -378,7 +379,7 @@ class CoinbaseProvider(HTTPProviderBase, MarketDataProvider):
 class KrakenProvider(HTTPProviderBase, MarketDataProvider):
     id = "kraken"
     version = "v1-spot-rest"
-    _INTERVAL_MINUTES: ClassVar[dict[str, int]] = {"15m": 15, "1h": 60, "4h": 240}
+    _INTERVAL_MINUTES: ClassVar[dict[str, int]] = {"1m": 1, "15m": 15, "1h": 60, "4h": 240}
 
     def __init__(self, *, symbols: SymbolMapper, client: httpx.AsyncClient | None = None) -> None:
         super().__init__(base_url="https://api.kraken.com/0/public", client=client)
