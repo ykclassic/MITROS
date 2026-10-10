@@ -61,6 +61,25 @@ The Render backend/worker environment is the server-side runtime secret boundary
 - `MITROS_INTERNAL_API_SECRET` when Vercel-to-Render service authentication is enabled
 - `MITROS_FRONTEND_URL`
 - `MITROS_ALLOWED_ORIGINS`
+
+### XT.com and Phase 4 risk configuration
+
+For the current building phase, XT.com is the authoritative spot-account source. Keep the API key and secret in Render only:
+- `MITROS_XT_API_KEY`
+- `MITROS_XT_API_SECRET`
+- `MITROS_XT_BASE_URL=https://sapi.xt.com`
+- `MITROS_XT_ACCOUNT_TYPE=spot`
+
+Set the Phase 4 risk policy values from `.env.example`. These are runtime configuration, not secrets. Account snapshots and risk decisions require `MITROS_DATABASE_URL`.
+
+Live order submission must remain disabled during this build phase:
+- `MITROS_EXECUTION_MODE=paper`
+- `MITROS_LIVE_TRADING_ENABLED=false`
+- `MITROS_LIVE_TRADING_ACK` empty
+- `MITROS_XT_LIVE_ORDERS_ENABLED=false`
+
+No XT credentials are stored in this repository or GitHub Actions. Do not enable live orders by changing code; use the backend environment flags after the required testing and audit milestone.
+
 - `MITROS_LOG_LEVEL=INFO`
 - `MITROS_LOG_FORMAT=json`
 
