@@ -127,6 +127,7 @@ class Phase4ExecutionPayload(BaseModel):
 
 class Phase4ExecutionResponse(BaseModel):
     proposal_id: str
+    risk_revalidation_audit_id: str
     execution_status: str
     venue_order_id: str | None
     filled_quantity: str
@@ -919,6 +920,31 @@ def create_app() -> FastAPI:
         digest = await repository.approval_digest(user_id=user.user_id, proposal_id=proposal_id)
         if not digest or not verify_approval_token(payload.approval_token, digest):
             raise HTTPException(status_code=403, detail="Approval token is invalid")
+        execute_revalidation = Phase4RiskIntent(
+            proposal_id=str(proposal.id),
+            asset=proposal.asset,
+            direction=proposal.direction,
+            entry=proposal.entry,
+            stop_loss=proposal.stop,
+            take_profit=proposal.target,
+            requested_notional=proposal.position_size,
+            idempotency_key=f"execute-revalidation-{proposal.id}-{uuid4()}",
+        )
+        refreshed, _, _ = await _evaluate_phase4_intent(
+            execute_revalidation, user_id=user.user_id
+        )
+        if (
+            refreshed.decision.disposition is not RiskDisposition.APPROVED
+            or refreshed.decision.approved_notional != proposal.position_size
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Execution blocked because fresh Phase 4 risk revalidation failed",
+                    "risk_audit_id": refreshed.audit_id,
+                    "rejection_reasons": list(refreshed.decision.rejection_reasons),
+                },
+            )
         try:
             config = ProductionConfig.from_env()
             gateway = build_venue_gateway(config)
@@ -944,6 +970,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=502, detail="Execution outcome uncertain; reconciliation required") from exc
         return Phase4ExecutionResponse(
             proposal_id=str(proposal_id),
+            risk_revalidation_audit_id=refreshed.audit_id,
             execution_status=result.status,
             venue_order_id=result.venue_order_id,
             filled_quantity=str(result.filled_quantity),
