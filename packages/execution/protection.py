@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Any
 
 import psycopg
 from loguru import logger
@@ -219,7 +220,7 @@ class XTSpotProtectionMonitor:
             )
             return cursor.rowcount == 1
 
-    async def _reconcile_exit(self, row: dict) -> None:
+    async def _reconcile_exit(self, row: dict[str, Any]) -> None:
         client_order_id = row.get("exit_client_order_id")
         if not client_order_id:
             return
