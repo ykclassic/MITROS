@@ -79,6 +79,8 @@ Live order submission must remain disabled during this build phase:
 - `MITROS_LIVE_TRADING_ENABLED=false`
 - `MITROS_LIVE_TRADING_ACK` empty
 - `MITROS_XT_LIVE_ORDERS_ENABLED=false`
+- `MITROS_XT_PROTECTION_MONITOR_ENABLED=false`
+- `MITROS_XT_PROTECTION_POLL_SECONDS=5`
 
 No XT credentials are stored in this repository or GitHub Actions. Do not enable live orders by changing code; use the backend environment flags after the required testing and audit milestone.
 
