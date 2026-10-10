@@ -140,8 +140,8 @@ class XTSpotExecutionGateway(ExecutionGateway):
                 reason="XT response omitted order ID; reconciliation required before retry",
             )
         self._venue_ids[order.client_order_id] = str(venue_id)
-        status = _normalize_status(str(result.get("status", "SUBMITTED")))
-        filled = Decimal(str(result.get("dealQuantity", result.get("filledQuantity", "0"))))
+        status = _normalize_status(str(result.get("state", result.get("status", "SUBMITTED"))))
+        filled = Decimal(str(result.get("executedQty", result.get("dealQuantity", result.get("filledQuantity", "0")))))
         price_value = result.get("avgPrice", result.get("price"))
         price = Decimal(str(price_value)) if price_value not in (None, "") else None
         return ExecutionResult(
@@ -156,18 +156,18 @@ class XTSpotExecutionGateway(ExecutionGateway):
         self._require_live_enabled()
         venue_id = self._venue_ids.get(client_order_id)
         path = f"/v4/order/{venue_id}" if venue_id else "/v4/order"
-        params = None if venue_id else {"clientOrderId": client_order_id, "bizType": "SPOT"}
+        params = None if venue_id else {"clientOrderId": client_order_id}
         result = self._request("GET", path, params=params)
         resolved_id = result.get("orderId", result.get("id", venue_id))
         if resolved_id is None:
             return None
-        filled = Decimal(str(result.get("dealQuantity", result.get("filledQuantity", "0"))))
+        filled = Decimal(str(result.get("executedQty", result.get("dealQuantity", result.get("filledQuantity", "0")))))
         price_value = result.get("avgPrice", result.get("price"))
         price = Decimal(str(price_value)) if price_value not in (None, "") else None
         return ExecutionResult(
             client_order_id=client_order_id,
             venue_order_id=str(resolved_id),
-            status=_normalize_status(str(result.get("status", "UNKNOWN"))),
+            status=_normalize_status(str(result.get("state", result.get("status", "UNKNOWN")))),
             filled_quantity=filled,
             average_price=price,
         )
