@@ -183,7 +183,7 @@ class XTSpotExecutionGateway(ExecutionGateway):
 def _normalize_status(value: str) -> str:
     normalized = value.upper()
     mapping = {
-        "NEW": "SUBMITTED", "OPEN": "SUBMITTED", "ACCEPTED": "SUBMITTED",
+        "SUBMITTED": "SUBMITTED", "NEW": "SUBMITTED", "OPEN": "SUBMITTED", "ACCEPTED": "SUBMITTED",
         "PARTIALLY_FILLED": "PARTIALLY_FILLED", "PARTIAL_FILLED": "PARTIALLY_FILLED",
         "FILLED": "FILLED", "CANCELED": "CANCELLED", "CANCELLED": "CANCELLED",
         "REJECTED": "REJECTED", "FAILED": "REJECTED", "UNKNOWN": "UNKNOWN",
