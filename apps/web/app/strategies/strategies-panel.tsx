@@ -81,16 +81,24 @@ function isSnapshot(value: unknown): value is Snapshot {
     typeof structure.bias === "string" &&
     isStringArray(structure.bos) &&
     isStringArray(structure.choch) &&
+    isStringArray(structure.swing_highs) &&
+    isStringArray(structure.swing_lows) &&
     isRecord(liquidity) &&
     isStringArray(liquidity.sweeps) &&
+    isStringArray(liquidity.pools) &&
+    typeof liquidity.session === "string" &&
     isRecord(smc) &&
     Array.isArray(smc.fvg) &&
     Array.isArray(smc.order_blocks) &&
+    isStringArray(smc.mitigation) &&
+    typeof smc.premium_discount === "string" &&
+    typeof smc.displacement === "boolean" &&
     isRecord(crt) &&
     typeof crt.direction === "string" &&
     Array.isArray(value.strategy_votes) &&
     isRecord(consensus) &&
     typeof consensus.direction === "string" &&
+    isStringArray(consensus.reasons) &&
     isRecord(mtf) &&
     Array.isArray(mtf.timeframes)
   );
@@ -165,7 +173,7 @@ export default function StrategiesPanel() {
       <section className="card panel">
         <div className="quote-error">{error ?? "Strategy intelligence is unavailable."}</div>
         <p className="subtle">The workspace does not invent or display a strategy result when the verified snapshot cannot be read.</p>
-        <button type="button" className="button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
+        <button type="button" className="secondary-button" onClick={() => setAttempt((value) => value + 1)}>Retry</button>
       </section>
     );
   }
