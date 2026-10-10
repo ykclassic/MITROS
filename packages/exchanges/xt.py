@@ -6,6 +6,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 from urllib.parse import urlencode
@@ -142,6 +143,35 @@ class XTSpotClient:
             total_btc_value=total_btc,
             balances=balances,
         )
+
+    async def market_ticker(self, asset: str) -> dict[str, Decimal | datetime]:
+        """Read XT's public ticker and require bid/ask evidence for spread checks."""
+        symbol = asset.replace("/", "_").lower()
+        payload = await self._request(
+            "GET", "/v4/public/ticker", params={"symbol": symbol}
+        )
+        result = payload.get("result")
+        item: dict[str, Any] | None = None
+        if isinstance(result, dict):
+            item = result
+        elif isinstance(result, list) and result and isinstance(result[0], dict):
+            item = result[0]
+        if item is None:
+            raise XTSpotError("XT ticker response is missing the expected result")
+        try:
+            bid = Decimal(str(item.get("bidPrice", item.get("bid"))))
+            ask = Decimal(str(item.get("askPrice", item.get("ask"))))
+            last = Decimal(str(item.get("lastPrice", item.get("last", item.get("price")))))
+        except (InvalidOperation, TypeError, ValueError) as exc:
+            raise XTSpotError("XT ticker response has invalid bid/ask/last values") from exc
+        if bid <= 0 or ask < bid or last <= 0:
+            raise XTSpotError("XT ticker bid/ask/last values are invalid")
+        return {
+            "bid": bid,
+            "ask": ask,
+            "last": last,
+            "observed_at": datetime.now(UTC),
+        }
 
     async def btc_usdt_price(self) -> Decimal:
         payload = await self._request(
