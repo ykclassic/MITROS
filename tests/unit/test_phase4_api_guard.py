@@ -78,6 +78,7 @@ def test_phase4_requires_xt_credentials_before_any_risk_decision(monkeypatch) ->
         "MITROS_RISK_MAX_SLIPPAGE_FRACTION": "0.001",
         "MITROS_RISK_MIN_DATA_QUALITY": "0.90",
         "MITROS_RISK_MAX_QUOTE_AGE_SECONDS": "60",
+        "MITROS_RISK_MAX_ACCOUNT_AGE_SECONDS": "120",
         "MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION": "0.001",
         "MITROS_RISK_MAX_MARKET_PRICE_DEVIATION_FRACTION": "0.01",
     }.items():
@@ -117,6 +118,7 @@ def _phase4_proposal_fixture():
         max_open_positions=5, min_risk_reward=Decimal("2"),
         max_spread_fraction=Decimal("0.002"), max_slippage_fraction=Decimal("0.001"),
         min_data_quality=Decimal("0.90"), max_quote_age_seconds=60,
+        max_account_age_seconds=120,
     )
     request = RiskEvaluationRequest(
         proposal_id=str(signal.id), asset="BTC/USDT", correlated_group="BTC-beta",
@@ -124,6 +126,7 @@ def _phase4_proposal_fixture():
         verified_reference_price=Decimal("100"), current_market_price=Decimal("100"),
         data_verified=True, data_quality=Decimal("1"), equity=Decimal("10000"),
         daily_pnl=Decimal("0"), peak_equity=Decimal("10000"), open_positions=(),
+        account_snapshot_at=now - timedelta(seconds=2),
         requested_notional=Decimal("1000"), entry=Decimal("100"), stop_loss=Decimal("95"),
         take_profit=Decimal("110"), spread_fraction=Decimal("0.001"),
         expected_slippage_fraction=Decimal("0.001"),

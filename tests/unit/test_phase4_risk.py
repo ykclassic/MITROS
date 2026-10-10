@@ -14,6 +14,7 @@ def policy(**overrides: object) -> RiskPolicy:
         "max_open_positions": 5, "min_risk_reward": Decimal("2"),
         "max_spread_fraction": Decimal("0.002"), "max_slippage_fraction": Decimal("0.001"),
         "min_data_quality": Decimal("0.90"), "max_quote_age_seconds": 60,
+        "max_account_age_seconds": 120,
     }
     values.update(overrides)
     return RiskPolicy.model_validate(values)
@@ -26,6 +27,7 @@ def request(**overrides: object) -> RiskEvaluationRequest:
         "verified_reference_price": Decimal("100"), "current_market_price": Decimal("100"),
         "data_verified": True, "data_quality": Decimal("0.99"), "equity": Decimal("10000"),
         "daily_pnl": Decimal("0"), "peak_equity": Decimal("10000"), "open_positions": (),
+        "account_snapshot_at": now - timedelta(seconds=5),
         "requested_notional": Decimal("1000"), "entry": Decimal("100"), "stop_loss": Decimal("95"),
         "take_profit": Decimal("110"), "spread_fraction": Decimal("0.001"),
         "expected_slippage_fraction": Decimal("0.0005"),
@@ -50,6 +52,8 @@ def test_safe_proposal_passes_but_never_authorizes_execution() -> None:
     ({"data_quality": Decimal("0.5")}, "data_quality"),
     ({"current_market_price": Decimal("105")}, "market_price_consistency"),
     ({"quote_observed_at": datetime(2026, 10, 10, 11, 0, tzinfo=UTC)}, "quote_freshness"),
+    ({"account_snapshot_at": datetime(2026, 10, 10, 11, 0, tzinfo=UTC)}, "account_state_freshness"),
+    ({"account_snapshot_at": None}, "account_state_freshness"),
     ({"stop_loss": Decimal("105")}, "stop_loss_and_take_profit"),
     ({"take_profit": Decimal("105")}, "risk_reward"),
     ({"requested_notional": Decimal("3000")}, "risk_per_trade"),

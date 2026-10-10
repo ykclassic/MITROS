@@ -174,13 +174,13 @@ class XTSpotClient:
             raise XTSpotError("XT ticker response has invalid bid/ask/last values") from exc
         if bid <= 0 or ask < bid or last <= 0:
             raise XTSpotError("XT ticker bid/ask/last values are invalid")
-        observed_at = datetime.now(UTC)
         try:
             exchange_timestamp = int(item.get("t", 0))
-            if exchange_timestamp > 0:
-                observed_at = datetime.fromtimestamp(exchange_timestamp / 1000, tz=UTC)
-        except (TypeError, ValueError, OverflowError):
-            pass
+            if exchange_timestamp <= 0:
+                raise XTSpotError("XT ticker is missing a valid exchange timestamp")
+            observed_at = datetime.fromtimestamp(exchange_timestamp / 1000, tz=UTC)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise XTSpotError("XT ticker is missing a valid exchange timestamp") from exc
         return {
             "bid": bid,
             "ask": ask,
