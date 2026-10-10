@@ -65,7 +65,9 @@ class XTSpotClient:
             f"xt-validate-algorithms={algorithm}&xt-validate-appkey={self.api_key}"
             f"&xt-validate-recvwindow={recvwindow}&xt-validate-timestamp={timestamp}"
         )
-        material = f"{prefix}#{method.upper()}#{path}#{query or body}"
+        material = f"{prefix}#{method.upper()}#{path}"
+        if query or body:
+            material += f"#{query or body}"
         signature = hmac.new(
             self.api_secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256
         ).hexdigest()
