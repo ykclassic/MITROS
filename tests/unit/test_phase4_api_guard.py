@@ -150,10 +150,8 @@ def test_rejected_fresh_risk_cannot_advance_proposal_to_human_approval(monkeypat
     )
 
     class FakeRepository:
-        approvals = []
-
         def __init__(self, database_url: str) -> None:
-            pass
+            self.approvals = []
 
         async def get(self, *, user_id: str, proposal_id):
             return proposal
@@ -191,10 +189,8 @@ def test_approved_proposal_revalidates_risk_before_issuing_human_approval(monkey
     )
 
     class FakeRepository:
-        approval_record = None
-
         def __init__(self, database_url: str) -> None:
-            pass
+            self.approval_record = None
 
         async def get(self, *, user_id: str, proposal_id):
             return proposal
