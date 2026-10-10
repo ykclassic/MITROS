@@ -40,6 +40,7 @@ def request(proposal_id: str, **overrides: object) -> RiskEvaluationRequest:
     values: dict[str, object] = {
         "proposal_id": proposal_id, "asset": "BTC/USD", "correlated_group": "BTC-beta",
         "direction": Direction.LONG, "as_of": now, "quote_observed_at": now - timedelta(seconds=5),
+        "verified_reference_price": Decimal("100"), "current_market_price": Decimal("100"),
         "data_verified": True, "data_quality": Decimal("0.99"), "equity": Decimal("10000"),
         "daily_pnl": Decimal("0"), "peak_equity": Decimal("10000"), "open_positions": (),
         "requested_notional": Decimal("1000"), "entry": Decimal("100"), "stop_loss": Decimal("95"),
