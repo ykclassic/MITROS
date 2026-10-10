@@ -333,3 +333,22 @@ def test_rejected_execution_revalidation_cannot_reserve_or_submit_order(monkeypa
         app.dependency_overrides.pop(require_user, None)
     assert result.status_code == 409
     assert not fake.reserved
+
+
+
+def test_phase4_readiness_reports_missing_xt_and_database_without_exposing_secrets(monkeypatch) -> None:
+    monkeypatch.delenv("MITROS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_KEY", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_SECRET", raising=False)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        response = TestClient(app).get("/api/v1/risk/phase4/readiness")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ready"] is False
+    assert payload["checks"]["database_configured"] is False
+    assert payload["checks"]["xt_credentials_configured"] is False
+    assert payload["checks"]["live_trading_disabled"] is True
+    assert "MITROS_XT_API_SECRET" not in response.text
