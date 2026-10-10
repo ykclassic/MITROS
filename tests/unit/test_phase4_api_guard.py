@@ -219,3 +219,60 @@ def test_approved_proposal_revalidates_risk_before_issuing_human_approval(monkey
     assert result.json()["approval_token"]
     assert fake.approval_record is not None
     assert str(fake.approval_record["risk_audit_id"]) == response.audit_id
+
+
+
+def test_rejected_phase4_decision_never_persists_a_trade_proposal(monkeypatch) -> None:
+    from decimal import Decimal
+    from packages.api import app as api_module
+    from contracts.phase4_risk import RiskDisposition
+    from packages.risk.phase4 import IndependentRiskGate
+
+    signal, policy, request, _, _ = _phase4_proposal_fixture()
+    rejected_request = request.model_copy(update={"data_verified": False})
+    rejected_decision = IndependentRiskGate(policy).evaluate(rejected_request)
+    assert rejected_decision.disposition is RiskDisposition.REJECTED
+    response = api_module.Phase4RiskEvaluationResponse(
+        scope="XT_ACCOUNT", audit_id="00000000-0000-0000-0000-000000000057",
+        account_snapshot_id="snapshot-test", market_evidence={}, decision=rejected_decision,
+    )
+
+    class FakeRepository:
+        def __init__(self, database_url: str) -> None:
+            self.created = False
+
+        async def create_approved(self, **kwargs) -> None:
+            self.created = True
+
+    fake = FakeRepository("unused")
+
+    async def evaluate(*args, **kwargs):
+        return response, rejected_request, policy
+
+    monkeypatch.setenv("MITROS_DATABASE_URL", "postgresql://unused/test")
+    monkeypatch.setattr(api_module, "PostgresPhase4ProposalRepository", lambda database_url: fake)
+    monkeypatch.setattr(api_module, "_evaluate_phase4_intent", evaluate)
+    body = {
+        "intent": {
+            "proposal_id": str(signal.id),
+            "asset": "BTC/USDT",
+            "direction": "LONG",
+            "entry": "100",
+            "stop_loss": "95",
+            "take_profit": "110",
+            "requested_notional": "1000",
+            "idempotency_key": "rejected-proposal-test",
+        },
+        "signal": signal.model_dump(mode="json"),
+        "regime": "TREND_UP",
+        "mtf_alignment": "0.9",
+        "model_versions": [],
+    }
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        result = TestClient(app).post("/api/v1/proposals/phase4", json=body)
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert result.status_code == 409
+    assert not fake.created
+    assert result.json()["detail"]["audit_id"] == response.audit_id
