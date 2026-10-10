@@ -36,7 +36,7 @@ class XTSpotExecutionGateway(ExecutionGateway):
     ) -> None:
         self.api_key = (api_key if api_key is not None else os.getenv("MITROS_XT_API_KEY", "")).strip()
         self.api_secret = (api_secret if api_secret is not None else os.getenv("MITROS_XT_API_SECRET", "")).strip()
-        self.base_url = (base_url or os.getenv("MITROS_XT_BASE_URL", "https://sapi.xt.com")).rstrip("/")
+        self.base_url = (base_url or (os.getenv("MITROS_XT_BASE_URL") or "https://sapi.xt.com")).rstrip("/")
         self._client = client
         self._venue_ids: dict[str, str] = {}
 
