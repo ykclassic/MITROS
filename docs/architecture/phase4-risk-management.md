@@ -30,6 +30,10 @@ A failed hard check returns `REJECTED`, `approved_notional=0`, and explicit reas
 - The old `GET /api/v1/risk/assessment` endpoint, which accepted caller-supplied risk limits and portfolio numbers, returns HTTP 410 and cannot approve a trade.
 - The legacy proposal builder remains available for isolated legacy tests, but XT execution requires `phase4-independent-risk-*` provenance and cannot submit a legacy proposal.
 
+## XT spot execution limitation for this build
+
+The XT adapter submits approved entry limit orders and reconciles XT order state. XT's documented spot `/v4/order` interface supports `LIMIT` and `MARKET` entries, not a native bracket order carrying both stop-loss and take-profit triggers. A software protective-order monitor/close workflow is not yet integrated. Therefore the XT live-order flags remain false; do not enable live orders until that protective-order lifecycle is implemented and verified. This is an outstanding feature integration item, not a distribution-audit requirement.
+
 ## Live execution configuration
 
 Paper mode is the default. XT live order submission is implemented behind an execution-gateway factory and is disabled by deployment environment variables; no code edit is needed to switch modes.
