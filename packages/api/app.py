@@ -373,6 +373,7 @@ def _load_phase4_policy() -> tuple[RiskPolicy, Decimal]:
         max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
         min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
         max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
+        max_market_price_deviation_fraction=Decimal(os.environ["MITROS_RISK_MAX_MARKET_PRICE_DEVIATION_FRACTION"]),
     )
     expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
     if expected_slippage < 0 or expected_slippage > policy.max_slippage_fraction:
@@ -429,6 +430,8 @@ async def _evaluate_phase4_intent(
             direction=payload.direction,
             as_of=datetime.now(UTC),
             quote_observed_at=ticker_observed_at,
+            verified_reference_price=latest_candle.close,
+            current_market_price=Decimal(str(ticker["last"])),
             account_source="xt.com",
             account_snapshot_id=account_state["snapshot_id"],
             account_snapshot_at=account_state["snapshot_at"],
