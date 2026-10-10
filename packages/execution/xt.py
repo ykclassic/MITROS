@@ -138,7 +138,7 @@ class XTSpotExecutionGateway(ExecutionGateway):
                 reason="XT response omitted order ID; reconciliation required before retry",
             )
         self._venue_ids[order.client_order_id] = str(venue_id)
-        status = str(result.get("status", "SUBMITTED")).upper()
+        status = _normalize_status(str(result.get("status", "SUBMITTED")))
         filled = Decimal(str(result.get("dealQuantity", result.get("filledQuantity", "0"))))
         price_value = result.get("avgPrice", result.get("price"))
         price = Decimal(str(price_value)) if price_value not in (None, "") else None
@@ -165,7 +165,19 @@ class XTSpotExecutionGateway(ExecutionGateway):
         return ExecutionResult(
             client_order_id=client_order_id,
             venue_order_id=str(resolved_id),
-            status=str(result.get("status", "UNKNOWN")).upper(),
+            status=_normalize_status(str(result.get("status", "UNKNOWN"))),
             filled_quantity=filled,
             average_price=price,
         )
+
+
+
+def _normalize_status(value: str) -> str:
+    normalized = value.upper()
+    mapping = {
+        "NEW": "SUBMITTED", "OPEN": "SUBMITTED", "ACCEPTED": "SUBMITTED",
+        "PARTIALLY_FILLED": "PARTIALLY_FILLED", "PARTIAL_FILLED": "PARTIALLY_FILLED",
+        "FILLED": "FILLED", "CANCELED": "CANCELLED", "CANCELLED": "CANCELLED",
+        "REJECTED": "REJECTED", "FAILED": "REJECTED", "UNKNOWN": "UNKNOWN",
+    }
+    return mapping.get(normalized, "UNKNOWN")
