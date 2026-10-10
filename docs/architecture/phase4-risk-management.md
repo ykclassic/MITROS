@@ -16,7 +16,7 @@ The caller supplies a timestamped portfolio snapshot, verified-data flag and qua
 - All checks return measured values, thresholds and rejection reasons. Any failed check means REJECTED and approved notional is exactly zero.
 
 ## Position sizing
-The engine computes notional risk from requested_notional multiplied by abs(entry - stop) / entry, then divides by equity for the risk fraction. The requested notional is accepted only when it fits both the risk budget and position/exposure caps; this version rejects rather than silently resizing the request.
+The engine computes stop-based risk fraction from requested_notional multiplied by abs(entry - stop) / entry, then divides by equity. It calculates the risk-budget notional as equity multiplied by max_risk_per_trade divided by the stop-distance fraction. The reported size_cap_notional is the minimum of that risk budget and per-position, gross-exposure, asset-concentration, and correlated-exposure headroom. If the requested notional exceeds any applicable hard limit, the request is rejected with approved notional zero rather than silently resized.
 
 ## Proposal invalidation
 Each decision includes explicit stop-crossing, expiry/stale-data, and pre-approval risk-breach invalidation conditions. The proposal is not a live order and the result always sets execution_authorized=false.
