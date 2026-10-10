@@ -56,6 +56,19 @@ class IndependentRiskGate:
         quote_age_seconds = (request.as_of - request.quote_observed_at).total_seconds()
         quote_fresh = 0 <= quote_age_seconds <= self.policy.max_quote_age_seconds
         quote_age = Decimal(str(max(0, quote_age_seconds)))
+        account_snapshot_at = request.account_snapshot_at
+        account_timestamp_valid = (
+            account_snapshot_at is not None and account_snapshot_at.tzinfo is not None
+        )
+        account_age_seconds = (
+            (request.as_of - account_snapshot_at).total_seconds()
+            if account_timestamp_valid and account_snapshot_at is not None
+            else None
+        )
+        account_fresh = (
+            account_age_seconds is not None
+            and 0 <= account_age_seconds <= self.policy.max_account_age_seconds
+        )
         market_price_deviation = (
             abs(request.current_market_price - request.verified_reference_price)
             / request.verified_reference_price
@@ -64,6 +77,7 @@ class IndependentRiskGate:
         checks = (
             RiskCheckResult(name="verified_market_data", passed=request.data_verified, observed=request.data_verified, threshold=True, reason="Market data must be verified by the authoritative data pipeline."),
             RiskCheckResult(name="quote_freshness", passed=quote_fresh, observed=quote_age, threshold=Decimal(self.policy.max_quote_age_seconds), reason="Quote must not be from the future or older than the policy permits."),
+            RiskCheckResult(name="account_state_freshness", passed=account_fresh, observed=Decimal(str(max(0, account_age_seconds))) if account_age_seconds is not None else "missing_or_invalid_timestamp", threshold=Decimal(self.policy.max_account_age_seconds), reason="Authoritative account state must have a valid timestamp within the configured age limit."),
             RiskCheckResult(name="data_quality", passed=request.data_quality >= self.policy.min_data_quality, observed=request.data_quality, threshold=self.policy.min_data_quality, reason="Data quality must meet the configured minimum."),
             RiskCheckResult(name="market_price_consistency", passed=market_price_deviation <= self.policy.max_market_price_deviation_fraction, observed=market_price_deviation, threshold=self.policy.max_market_price_deviation_fraction, reason="XT's current price must agree with the verified market-data reference within policy tolerance."),
             RiskCheckResult(name="stop_loss_and_take_profit", passed=levels_valid, observed=f"{request.entry}/{request.stop_loss}/{request.take_profit}", threshold="directionally valid entry/stop/target", reason="Stop-loss and take-profit are mandatory and must be on the correct side of entry."),
