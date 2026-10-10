@@ -20,6 +20,7 @@ def policy() -> RiskPolicy:
         max_open_positions=5, min_risk_reward=Decimal("2"),
         max_spread_fraction=Decimal("0.002"), max_slippage_fraction=Decimal("0.001"),
         min_data_quality=Decimal("0.90"), max_quote_age_seconds=60,
+        max_account_age_seconds=120,
     )
 
 
@@ -43,6 +44,7 @@ def request(proposal_id: str, **overrides: object) -> RiskEvaluationRequest:
         "verified_reference_price": Decimal("100"), "current_market_price": Decimal("100"),
         "data_verified": True, "data_quality": Decimal("0.99"), "equity": Decimal("10000"),
         "daily_pnl": Decimal("0"), "peak_equity": Decimal("10000"), "open_positions": (),
+        "account_snapshot_at": now - timedelta(seconds=5),
         "requested_notional": Decimal("1000"), "entry": Decimal("100"), "stop_loss": Decimal("95"),
         "take_profit": Decimal("110"), "spread_fraction": Decimal("0.001"),
         "expected_slippage_fraction": Decimal("0.0005"),
