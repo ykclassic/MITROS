@@ -375,8 +375,8 @@ def _load_phase4_policy() -> tuple[RiskPolicy, Decimal]:
         max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
     )
     expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
-    if expected_slippage < 0:
-        raise ValueError("expected slippage must be non-negative")
+    if expected_slippage < 0 or expected_slippage > policy.max_slippage_fraction:
+        raise ValueError("expected slippage must be non-negative and within the slippage policy")
     return policy, expected_slippage
 
 
@@ -810,7 +810,17 @@ def create_app() -> FastAPI:
                             select
                                 to_regclass('public.phase4_risk_decisions') is not null,
                                 to_regclass('public.phase4_portfolio_snapshots') is not null,
-                                to_regclass('public.trade_proposals') is not null
+                                to_regclass('public.trade_proposals') is not null,
+                                exists (
+                                    select 1 from information_schema.columns
+                                    where table_schema='public' and table_name='trade_proposals'
+                                      and column_name='owner_user_id'
+                                ),
+                                exists (
+                                    select 1 from information_schema.columns
+                                    where table_schema='public' and table_name='trade_proposals'
+                                      and column_name='risk_decision_audit_id'
+                                )
                             """
                         )
                         row = await cursor.fetchone()
@@ -836,7 +846,8 @@ def create_app() -> FastAPI:
                 checks["verified_market_data"] = False
         required = (
             "database_configured", "risk_policy_configured", "xt_credentials_configured",
-            "phase4_schema_applied", "xt_read_only_connection", "verified_market_data",
+            "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
+            "verified_market_data",
         )
         ready = all(checks[name] for name in required)
         return Phase4ReadinessResponse(
