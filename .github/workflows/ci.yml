@@ -62,6 +62,7 @@ jobs:
       - run: test -s supabase/migrations/20261008214000_0007_provider_replacement_coinbase_kraken_coingecko.sql
       - run: test -s supabase/migrations/20261008211000_0008_coinbase_advanced_public.sql
       - run: test -s supabase/migrations/20261009060000_0009_intelligence_snapshots.sql
+      - run: test -s supabase/migrations/20261010180000_0010_phase4_risk_decision_audit.sql
   configuration:
     runs-on: ubuntu-latest
     steps:
