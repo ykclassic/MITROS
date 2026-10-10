@@ -91,3 +91,18 @@ def test_unapproved_proposal_cannot_execute() -> None:
 def test_execution_contract_has_no_mt5_sdk_dependency() -> None:
     import packages.execution.mt5 as module
     assert "MetaTrader5" not in module.__dict__
+
+
+
+def test_legacy_proposal_cannot_reach_xt_gateway_without_phase4_provenance() -> None:
+    p, outcome = proposal()
+    legacy_xt = p.model_copy(update={
+        "venue": "xt.com",
+        "approval_status": ApprovalStatus.APPROVED,
+    })
+    boundary = ProposalExecutionGateway(
+        PaperExecutionGateway(),
+        approval_digest=approval_token_digest(outcome.approval.approval_token or ""),
+    )
+    with pytest.raises(ValueError, match="Phase 4 independent risk decision"):
+        boundary.submit(legacy_xt, outcome.approval.approval_token or "")
