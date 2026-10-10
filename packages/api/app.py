@@ -779,7 +779,10 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/risk/phase4/readiness", response_model=Phase4ReadinessResponse)
     async def phase4_readiness(user: CurrentUser) -> Phase4ReadinessResponse:
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
-        xt = XTSpotClient()
+        try:
+            xt = build_account_client()
+        except ValueError:
+            xt = None
         try:
             _load_phase4_policy()
             policy_configured = True
@@ -795,7 +798,7 @@ def create_app() -> FastAPI:
         checks = {
             "database_configured": bool(database_url),
             "risk_policy_configured": policy_configured,
-            "xt_credentials_configured": xt.configured,
+            "xt_credentials_configured": bool(xt and xt.configured),
             "live_trading_disabled": not live_enabled,
             "phase4_schema_applied": False,
             "xt_read_only_connection": False,
@@ -827,7 +830,7 @@ def create_app() -> FastAPI:
                         checks["phase4_schema_applied"] = bool(row and all(row))
             except psycopg.Error:
                 checks["phase4_schema_applied"] = False
-        if xt.configured:
+        if xt and xt.configured:
             try:
                 await xt.account_snapshot()
                 await xt.btc_usdt_price()
