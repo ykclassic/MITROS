@@ -79,6 +79,7 @@ def test_phase4_requires_xt_credentials_before_any_risk_decision(monkeypatch) ->
         "MITROS_RISK_MIN_DATA_QUALITY": "0.90",
         "MITROS_RISK_MAX_QUOTE_AGE_SECONDS": "60",
         "MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION": "0.001",
+        "MITROS_RISK_MAX_MARKET_PRICE_DEVIATION_FRACTION": "0.01",
     }.items():
         monkeypatch.setenv(key, value)
     response = _post(INTENT)
