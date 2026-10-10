@@ -1,7 +1,6 @@
 # MITROS Deployment & Configuration Foundation
 
 ## Deployment boundary
-
 MITROS uses four explicit operational boundaries:
 
 - **GitHub Actions** — source control, CI gates, branch governance and deployment automation metadata. It must not become the runtime secret store.
@@ -13,7 +12,7 @@ A secret is stored only in the platform/service that requires it. Production cre
 
 ## GitHub Actions
 
-Required repository/org secrets for future deployment automation:
+Required repository/org secrets for deployment automation:
 
 - `SUPABASE_ACCESS_TOKEN`
 - `SUPABASE_PROJECT_REF`
@@ -24,11 +23,18 @@ Required repository/org secrets for future deployment automation:
 - `RENDER_API_KEY`
 - `RENDER_OWNER_ID`
 
+Production E2E authentication uses a dedicated, least-privilege Supabase test user. Configure these repository secrets for the `deployment-e2e` job:
+
+- `MITROS_E2E_SUPABASE_URL` — URL of the same Supabase project configured in the Render API.
+- `MITROS_E2E_SUPABASE_PUBLISHABLE_KEY` — that project's publishable/anon key; never use a service-role key here.
+- `MITROS_E2E_USER_EMAIL` — email of the dedicated E2E test user.
+- `MITROS_E2E_USER_PASSWORD` — password for that dedicated test user.
+
+The workflow signs in through Supabase Auth at runtime, keeps the returned access token in process memory, and passes it only to the production test process. The token and authentication response body are not printed. Do not use a personal account; keep the E2E account unprivileged and do not grant it trading/execution permissions. If any required secret is absent or authentication fails, production E2E fails closed.
+
 Optional:
 
 - `CODECOV_TOKEN`
-
-GitHub Actions variables may contain non-secret build metadata such as `PYTHON_VERSION=3.12` and `MITROS_ENVIRONMENT=ci`.
 
 Do **not** place market-data API keys, Supabase service-role keys, application secrets, approval secrets, broker credentials or MT5 credentials in GitHub unless a narrowly scoped deployment action explicitly requires them. Runtime secrets remain in the target runtime.
 
@@ -92,7 +98,7 @@ Never expose `SUPABASE_SERVICE_ROLE_KEY`, provider API keys, approval secrets, a
 - Market-data credentials use the existing `MITROS_MARKET_*` namespace.
 - Browser-exposed configuration must use `NEXT_PUBLIC_*` and contain no secrets.
 - Empty/absent secrets are preferable to placeholder credentials in production.
-- Secrets must be injected by the deployment platform, not committed to the repository.
+- Secrets must be injected by the deployment platform, not committed to Git.
 
 ## CI safety checks
 
