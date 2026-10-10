@@ -51,6 +51,8 @@ class XTSpotExecutionGateway(ExecutionGateway):
             raise XTExecutionError("XT live trading requires explicit operator acknowledgement")
         if os.getenv("MITROS_XT_LIVE_ORDERS_ENABLED", "false").strip().lower() != "true":
             raise XTExecutionError("XT live order submission is disabled by MITROS_XT_LIVE_ORDERS_ENABLED")
+        if os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() != "true":
+            raise XTExecutionError("XT live orders require MITROS_XT_PROTECTION_MONITOR_ENABLED")
         if not self.api_key or not self.api_secret:
             raise XTExecutionError("XT trading credentials are not configured")
 
@@ -130,7 +132,7 @@ class XTSpotExecutionGateway(ExecutionGateway):
             "quantity": str(order.quantity),
             "price": str(order.limit_price),
             "type": "LIMIT",
-            "timeInForce": "GTC",
+            "timeInForce": "IOC",
             "clientOrderId": venue_client_id,
         }
         result = self._request("POST", "/v4/order", body=body)
@@ -156,6 +158,48 @@ class XTSpotExecutionGateway(ExecutionGateway):
             status=status,
             filled_quantity=filled,
             average_price=price,
+        )
+
+
+    def submit_protective_close(
+        self, *, asset: str, quantity: Decimal, client_order_id: str
+    ) -> ExecutionResult:
+        """Submit a risk-reducing market sell for an already-approved XT spot long."""
+        self._require_live_enabled()
+        if quantity <= 0:
+            raise XTExecutionError("protective close quantity must be positive")
+        venue_client_id = _xt_client_order_id(client_order_id)
+        result = self._request(
+            "POST",
+            "/v4/order",
+            body={
+                "symbol": asset.replace("/", "_").lower(),
+                "side": "SELL",
+                "bizType": "SPOT",
+                "quantity": str(quantity),
+                "type": "MARKET",
+                "timeInForce": "IOC",
+                "clientOrderId": venue_client_id,
+            },
+        )
+        venue_id = result.get("orderId", result.get("id"))
+        if venue_id is None:
+            return ExecutionResult(
+                client_order_id=client_order_id,
+                venue_order_id=None,
+                status="UNKNOWN",
+                filled_quantity=Decimal("0"),
+                average_price=None,
+                reason="XT response omitted protective-close order ID; reconcile before retry",
+            )
+        self._venue_ids[client_order_id] = str(venue_id)
+        price_value = result.get("avgPrice", result.get("price"))
+        return ExecutionResult(
+            client_order_id=client_order_id,
+            venue_order_id=str(venue_id),
+            status=_normalize_status(str(result.get("state", result.get("status", "SUBMITTED")))),
+            filled_quantity=Decimal(str(result.get("executedQty", result.get("dealQuantity", "0")))),
+            average_price=Decimal(str(price_value)) if price_value not in (None, "") else None,
         )
 
     def reconcile(self, client_order_id: str) -> ExecutionResult | None:
