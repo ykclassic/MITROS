@@ -36,6 +36,8 @@ def test_safe_proposal_passes_but_never_authorizes_execution() -> None:
     result = IndependentRiskGate(policy()).evaluate(request())
     assert result.disposition is RiskDisposition.APPROVED
     assert result.approved_notional == Decimal("1000")
+    assert result.risk_budget_notional == Decimal("2000")
+    assert result.size_cap_notional == Decimal("2000")
     assert result.risk_amount == Decimal("50")
     assert result.reward_risk_ratio == Decimal("2")
     assert result.execution_authorized is False
