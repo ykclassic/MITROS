@@ -129,7 +129,7 @@ class PostgresPhase4RiskDecisionRepository:
                     ),
                 )
                 return dict(row)
-            except RiskDecisionPersistenceError:
+        except RiskDecisionPersistenceError:
             raise
         except (psycopg.Error, ValueError, TypeError) as exc:
             raise RiskDecisionPersistenceError(
