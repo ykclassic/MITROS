@@ -164,18 +164,25 @@ class XTSpotClient:
         if item is None:
             raise XTSpotError("XT ticker response is missing the expected result")
         try:
-            bid = Decimal(str(item.get("bidPrice", item.get("bid"))))
-            ask = Decimal(str(item.get("askPrice", item.get("ask"))))
-            last = Decimal(str(item.get("lastPrice", item.get("last", item.get("price")))))
+            bid = Decimal(str(item.get("bidPrice", item.get("bp", item.get("bid")))))
+            ask = Decimal(str(item.get("askPrice", item.get("ap", item.get("ask")))))
+            last = Decimal(str(item.get("lastPrice", item.get("c", item.get("last", item.get("price")))))
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise XTSpotError("XT ticker response has invalid bid/ask/last values") from exc
         if bid <= 0 or ask < bid or last <= 0:
             raise XTSpotError("XT ticker bid/ask/last values are invalid")
+        observed_at = datetime.now(UTC)
+        try:
+            exchange_timestamp = int(item.get("t", 0))
+            if exchange_timestamp > 0:
+                observed_at = datetime.fromtimestamp(exchange_timestamp / 1000, tz=UTC)
+        except (TypeError, ValueError, OverflowError):
+            pass
         return {
             "bid": bid,
             "ask": ask,
             "last": last,
-            "observed_at": datetime.now(UTC),
+            "observed_at": observed_at,
         }
 
     async def btc_usdt_price(self) -> Decimal:
@@ -185,9 +192,9 @@ class XTSpotClient:
         result = payload.get("result")
         candidates: list[Any] = []
         if isinstance(result, dict):
-            candidates.extend(result.get(key) for key in ("price", "last", "c"))
+            candidates.extend(result.get(key) for key in ("price", "last", "c", "p"))
         elif isinstance(result, list) and result and isinstance(result[0], dict):
-            candidates.extend(result[0].get(key) for key in ("price", "last", "c"))
+            candidates.extend(result[0].get(key) for key in ("price", "last", "c", "p"))
         candidates.extend(payload.get(key) for key in ("price", "last"))
         for candidate in candidates:
             try:
