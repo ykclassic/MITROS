@@ -50,6 +50,7 @@ def test_xt_limit_order_submission_and_reconciliation(monkeypatch) -> None:
     monkeypatch.setenv("MITROS_LIVE_TRADING_ENABLED", "true")
     monkeypatch.setenv("MITROS_LIVE_TRADING_ACK", "I_UNDERSTAND_LIVE_TRADING")
     monkeypatch.setenv("MITROS_XT_LIVE_ORDERS_ENABLED", "true")
+    monkeypatch.setenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "true")
     calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -92,3 +93,15 @@ def test_xt_limit_order_submission_and_reconciliation(monkeypatch) -> None:
     assert reconciled.filled_quantity == Decimal("0.01")
     assert reconciled.average_price == Decimal("100")
     assert len(calls) == 2
+
+
+
+def test_xt_live_requires_protective_monitor_toggle(monkeypatch) -> None:
+    monkeypatch.setenv("MITROS_EXECUTION_MODE", "live")
+    monkeypatch.setenv("MITROS_LIVE_TRADING_ENABLED", "true")
+    monkeypatch.setenv("MITROS_LIVE_TRADING_ACK", "I_UNDERSTAND_LIVE_TRADING")
+    monkeypatch.setenv("MITROS_XT_LIVE_ORDERS_ENABLED", "true")
+    monkeypatch.setenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false")
+    gateway = XTSpotExecutionGateway(api_key="test", api_secret="test")
+    with pytest.raises(XTExecutionError, match="MITROS_XT_PROTECTION_MONITOR_ENABLED"):
+        gateway._require_live_enabled()
