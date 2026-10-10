@@ -39,6 +39,8 @@ BODY = {
 
 def test_phase4_risk_route_is_disabled_in_live_mode(monkeypatch) -> None:
     monkeypatch.setenv("MITROS_EXECUTION_MODE", "live")
+    monkeypatch.setenv("MITROS_LIVE_TRADING_ENABLED", "true")
+    monkeypatch.setenv("MITROS_LIVE_TRADING_ACK", "I_UNDERSTAND_LIVE_TRADING")
     monkeypatch.delenv("MITROS_DATABASE_URL", raising=False)
     app.dependency_overrides[require_user] = lambda: TEST_USER
     try:
