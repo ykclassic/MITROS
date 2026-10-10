@@ -402,8 +402,11 @@ async def _evaluate_phase4_intent(
     try:
         xt_account = await xt.account_snapshot()
         btc_usdt_price = await xt.btc_usdt_price()
+        account_scope_id = os.getenv("MITROS_XT_ACCOUNT_SCOPE_ID", "xt.com:primary").strip()
+        if not account_scope_id:
+            raise RuntimeError("XT account scope is not configured")
         account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
-            user_id=user_id, account=xt_account, btc_usdt_price=btc_usdt_price
+            user_id=account_scope_id, account=xt_account, btc_usdt_price=btc_usdt_price
         )
         batch = await (await build_verified_service()).candles(
             MarketDataRequest(asset=payload.asset, venue="spot", timeframe="1m", limit=2)
