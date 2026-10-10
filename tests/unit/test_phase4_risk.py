@@ -23,6 +23,7 @@ def request(**overrides: object) -> RiskEvaluationRequest:
     values: dict[str, object] = {
         "proposal_id": "proposal-001", "asset": "BTC/USD", "correlated_group": "BTC-beta",
         "direction": Direction.LONG, "as_of": now, "quote_observed_at": now - timedelta(seconds=5),
+        "verified_reference_price": Decimal("100"), "current_market_price": Decimal("100"),
         "data_verified": True, "data_quality": Decimal("0.99"), "equity": Decimal("10000"),
         "daily_pnl": Decimal("0"), "peak_equity": Decimal("10000"), "open_positions": (),
         "requested_notional": Decimal("1000"), "entry": Decimal("100"), "stop_loss": Decimal("95"),
@@ -47,6 +48,7 @@ def test_safe_proposal_passes_but_never_authorizes_execution() -> None:
 @pytest.mark.parametrize(("changes", "check"), [
     ({"data_verified": False}, "verified_market_data"),
     ({"data_quality": Decimal("0.5")}, "data_quality"),
+    ({"current_market_price": Decimal("105")}, "market_price_consistency"),
     ({"quote_observed_at": datetime(2026, 10, 10, 11, 0, tzinfo=UTC)}, "quote_freshness"),
     ({"stop_loss": Decimal("105")}, "stop_loss_and_take_profit"),
     ({"take_profit": Decimal("105")}, "risk_reward"),
