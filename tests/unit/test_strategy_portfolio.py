@@ -153,7 +153,11 @@ def test_failed_evidence_prevents_qualification() -> None:
 
     assert result.disposition == SignalDisposition.WAIT
     assert result.direction is None
-    assert any("evidence check failed" in reason.lower() for reason in result.reasons)
+    assert any(
+        "evidence checks failed" in reason.lower()
+        for item in result.contributions
+        for reason in item.reasons
+    )
 
 
 def test_regime_mismatch_makes_strategy_ineligible() -> None:
