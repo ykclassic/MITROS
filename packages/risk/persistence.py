@@ -53,86 +53,86 @@ class PostgresPhase4RiskDecisionRepository:
                 self.database_url, row_factory=dict_row
             ) as connection, connection.transaction():
                 async with connection.cursor() as cursor:
+                    await cursor.execute(
+                        """
+                        insert into phase4_risk_decisions (
+                            user_id, proposal_id, idempotency_key, disposition,
+                            engine_version, request_snapshot, policy_snapshot,
+                            decision_snapshot
+                        )
+                        values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
+                        on conflict (user_id, idempotency_key) do nothing
+                        returning id, proposal_id, disposition, engine_version,
+                                  request_snapshot, policy_snapshot,
+                                  decision_snapshot, created_at
+                        """,
+                        (
+                            user_id,
+                            request.proposal_id,
+                            idempotency_key,
+                            decision.disposition.value,
+                            decision.risk_engine_version,
+                            json.dumps(request_json),
+                            json.dumps(policy_json),
+                            json.dumps(decision_json),
+                        ),
+                    )
+                    row = await cursor.fetchone()
+                    if row is None:
                         await cursor.execute(
                             """
-                            insert into phase4_risk_decisions (
-                                user_id, proposal_id, idempotency_key, disposition,
-                                engine_version, request_snapshot, policy_snapshot,
-                                decision_snapshot
-                            )
-                            values (%s,%s,%s,%s,%s,%s::jsonb,%s::jsonb,%s::jsonb)
-                            on conflict (user_id, idempotency_key) do nothing
-                            returning id, proposal_id, disposition, engine_version,
-                                      request_snapshot, policy_snapshot,
-                                      decision_snapshot, created_at
+                            select id, proposal_id, disposition, engine_version,
+                                   request_snapshot, policy_snapshot,
+                                   decision_snapshot, created_at
+                            from phase4_risk_decisions
+                            where user_id = %s and idempotency_key = %s
                             """,
-                            (
-                                user_id,
-                                request.proposal_id,
-                                idempotency_key,
-                                decision.disposition.value,
-                                decision.risk_engine_version,
-                                json.dumps(request_json),
-                                json.dumps(policy_json),
-                                json.dumps(decision_json),
-                            ),
+                            (user_id, idempotency_key),
                         )
                         row = await cursor.fetchone()
                         if row is None:
-                            await cursor.execute(
-                                """
-                                select id, proposal_id, disposition, engine_version,
-                                       request_snapshot, policy_snapshot,
-                                       decision_snapshot, created_at
-                                from phase4_risk_decisions
-                                where user_id = %s and idempotency_key = %s
-                                """,
-                                (user_id, idempotency_key),
+                            raise RiskDecisionPersistenceError(
+                                "idempotent risk decision could not be retrieved"
                             )
-                            row = await cursor.fetchone()
-                            if row is None:
-                                raise RiskDecisionPersistenceError(
-                                    "idempotent risk decision could not be retrieved"
-                                )
-                            if (
-                                row["proposal_id"] != request.proposal_id
-                                or row["request_snapshot"] != request_json
-                                or row["policy_snapshot"] != policy_json
-                            ):
-                                raise RiskDecisionPersistenceError(
-                                    "idempotency key reused with different risk inputs"
-                                )
-                            return dict(row)
-
-                        await cursor.execute(
-                            """
-                            insert into system_events (
-                                event_type, aggregate_id, occurred_at, recorded_at,
-                                producer, producer_version, correlation_id,
-                                schema_version, payload, provenance
+                        if (
+                            row["proposal_id"] != request.proposal_id
+                            or row["request_snapshot"] != request_json
+                            or row["policy_snapshot"] != policy_json
+                        ):
+                            raise RiskDecisionPersistenceError(
+                                "idempotency key reused with different risk inputs"
                             )
-                            values (
-                                'RiskEvaluated', %s, %s, now(),
-                                'phase4-independent-risk', %s, %s,
-                                1, %s::jsonb, %s::jsonb
-                            )
-                            """,
-                            (
-                                UUID(request.proposal_id) if _is_uuid(request.proposal_id) else uuid5(NAMESPACE_URL, request.proposal_id),
-                                decision.evaluated_at,
-                                decision.risk_engine_version,
-                                correlation_id,
-                                json.dumps(decision_json),
-                                json.dumps([{
-                                    "source": "phase4-risk-decision-repository",
-                                    "engine_version": decision.risk_engine_version,
-                                }]),
-                            ),
-                        )
                         return dict(row)
-        except RiskDecisionPersistenceError:
-            raise
-        except (psycopg.Error, ValueError, TypeError) as exc:
-            raise RiskDecisionPersistenceError(
-                "risk decision audit persistence failed"
-            ) from exc
+
+                    await cursor.execute(
+                        """
+                        insert into system_events (
+                            event_type, aggregate_id, occurred_at, recorded_at,
+                            producer, producer_version, correlation_id,
+                            schema_version, payload, provenance
+                        )
+                        values (
+                            'RiskEvaluated', %s, %s, now(),
+                            'phase4-independent-risk', %s, %s,
+                            1, %s::jsonb, %s::jsonb
+                        )
+                        """,
+                        (
+                            UUID(request.proposal_id) if _is_uuid(request.proposal_id) else uuid5(NAMESPACE_URL, request.proposal_id),
+                            decision.evaluated_at,
+                            decision.risk_engine_version,
+                            correlation_id,
+                            json.dumps(decision_json),
+                            json.dumps([{
+                                "source": "phase4-risk-decision-repository",
+                                "engine_version": decision.risk_engine_version,
+                            }]),
+                        ),
+                    )
+                    return dict(row)
+    except RiskDecisionPersistenceError:
+        raise
+    except (psycopg.Error, ValueError, TypeError) as exc:
+        raise RiskDecisionPersistenceError(
+            "risk decision audit persistence failed"
+        ) from exc
