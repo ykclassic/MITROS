@@ -69,6 +69,7 @@ For the current building phase, XT.com is the authoritative spot-account source.
 - `MITROS_XT_API_SECRET`
 - `MITROS_XT_BASE_URL=https://sapi.xt.com`
 - `MITROS_ACCOUNT_EXCHANGE=xt.com`
+- `MITROS_XT_ACCOUNT_SCOPE_ID=xt.com:primary`
 - `MITROS_XT_ACCOUNT_TYPE=spot`
 
 Set the Phase 4 risk policy values from `.env.example`. These are runtime configuration, not secrets. Account snapshots and risk decisions require `MITROS_DATABASE_URL`.
