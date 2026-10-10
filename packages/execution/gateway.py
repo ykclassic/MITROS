@@ -32,6 +32,8 @@ class ProposalExecutionGateway:
             raise ValueError("invalid approval token")
         if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"} and not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
             raise ValueError("XT live execution requires a Phase 4 independent risk decision")
+        if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"} and proposal.direction is Direction.SHORT:
+            raise ValueError("XT spot execution does not support opening short positions")
         side = ExecutionSide.BUY if proposal.direction is Direction.LONG else ExecutionSide.SELL
         quantity = (
             proposal.position_size / proposal.entry
