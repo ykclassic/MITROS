@@ -69,7 +69,7 @@ class RiskDecisionResult(BaseModel):
     disposition: RiskDisposition
     approved_notional: Decimal = Field(ge=0)
     risk_budget_notional: Decimal = Field(ge=0)
-    max_permitted_notional: Decimal = Field(ge=0)
+    size_cap_notional: Decimal = Field(ge=0)
     risk_amount: Decimal = Field(ge=0)
     risk_fraction: Decimal = Field(ge=0)
     reward_risk_ratio: Decimal = Field(ge=0)
