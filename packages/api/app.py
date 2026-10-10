@@ -395,6 +395,9 @@ async def _evaluate_phase4_intent(
             raise RuntimeError("verified market-data evidence unavailable")
         latest_candle = max(batch.candles, key=lambda candle: candle.close_time)
         ticker = await xt.market_ticker(payload.asset)
+        ticker_observed_at = ticker["observed_at"]
+        if not isinstance(ticker_observed_at, datetime):
+            raise XTSpotError("XT ticker has no valid observation timestamp")
         bid, ask = Decimal(str(ticker["bid"])), Decimal(str(ticker["ask"]))
         mid = (bid + ask) / Decimal("2")
         spread_fraction = (ask - bid) / mid
@@ -405,7 +408,7 @@ async def _evaluate_phase4_intent(
             correlated_group=_phase4_correlation_group(payload.asset),
             direction=payload.direction,
             as_of=datetime.now(UTC),
-            quote_observed_at=ticker["observed_at"],
+            quote_observed_at=ticker_observed_at,
             account_source="xt.com",
             account_snapshot_id=account_state["snapshot_id"],
             account_snapshot_at=account_state["snapshot_at"],
@@ -471,7 +474,7 @@ async def _evaluate_phase4_intent(
             "xt_ask": str(ask),
             "xt_last": str(ticker["last"]),
             "spread_fraction": str(spread_fraction),
-            "quote_observed_at": ticker["observed_at"].isoformat(),
+            "quote_observed_at": ticker_observed_at.isoformat(),
         },
         decision=decision,
     )
