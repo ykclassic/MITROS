@@ -28,6 +28,10 @@ class IndependentRiskGate:
         rr = reward_distance / stop_distance if stop_distance > ZERO else ZERO
         risk_amount = request.requested_notional * stop_distance
         risk_fraction = risk_amount / request.equity
+        risk_budget_notional = (
+            request.equity * self.policy.max_risk_per_trade / stop_distance
+            if stop_distance > ZERO else ZERO
+        )
         requested_fraction = request.requested_notional / request.equity
         daily_loss = max(ZERO, -request.daily_pnl) / request.equity
         drawdown = max(ZERO, request.peak_equity - request.equity) / request.peak_equity
@@ -38,6 +42,17 @@ class IndependentRiskGate:
         correlated_positions = sum(1 for p in request.open_positions if p.correlated_group == request.correlated_group)
         correlated_notional = sum((p.notional for p in request.open_positions if p.correlated_group == request.correlated_group), ZERO)
         correlated_fraction = (correlated_notional + request.requested_notional) / request.equity
+        size_cap_notional = min(
+            risk_budget_notional,
+            request.equity * self.policy.max_position_fraction,
+            max(ZERO, request.equity * self.policy.max_gross_exposure_fraction - gross_notional),
+            max(ZERO, request.equity * self.policy.max_asset_concentration_fraction - asset_notional),
+            max(ZERO, request.equity * self.policy.max_correlated_exposure_fraction - correlated_notional),
+        )
+        if len(request.open_positions) >= self.policy.max_open_positions:
+            size_cap_notional = ZERO
+        if correlated_positions >= self.policy.max_correlated_positions:
+            size_cap_notional = ZERO
         quote_age_seconds = (request.as_of - request.quote_observed_at).total_seconds()
         quote_fresh = 0 <= quote_age_seconds <= self.policy.max_quote_age_seconds
         quote_age = Decimal(str(max(0, quote_age_seconds)))
@@ -66,6 +81,8 @@ class IndependentRiskGate:
             proposal_id=request.proposal_id,
             disposition=RiskDisposition.APPROVED if approved else RiskDisposition.REJECTED,
             approved_notional=request.requested_notional if approved else ZERO,
+            risk_budget_notional=risk_budget_notional,
+            size_cap_notional=size_cap_notional,
             risk_amount=risk_amount if approved else ZERO,
             risk_fraction=risk_fraction if approved else ZERO,
             reward_risk_ratio=rr,
