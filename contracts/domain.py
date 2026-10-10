@@ -30,3 +30,4 @@ class TradeProposal(BaseModel):
     data_quality:Decimal=Field(ge=0,le=1); evidence:tuple[Evidence,...]; risk:RiskDecisionRecord
     approval_status:ApprovalStatus=ApprovalStatus.PENDING; approval_actor:str|None=None; approval_at:datetime|None=None
     execution_status:ExecutionStatus=ExecutionStatus.NOT_AUTHORIZED; provenance:tuple[Provenance,...]
+    invalidation_conditions:tuple[str,...]=()
