@@ -17,7 +17,7 @@ XT.com is the authoritative account/portfolio source for this building phase. Ex
 
 ## Risk policy and decision audit
 
-The independent Phase 4 gate evaluates stop/target orientation, reward-to-risk, stop-based risk budget, position size, gross exposure, asset concentration, correlated exposure and count, open-position count, daily loss, drawdown, data quality, quote freshness, spread, and expected slippage.
+The independent Phase 4 gate evaluates stop/target orientation, reward-to-risk, stop-based risk budget, position size, gross exposure, asset concentration, correlated exposure and count, open-position count, daily loss, drawdown, data quality, quote freshness, spread, expected slippage, and deviation between the latest verified candle close and XT's current ticker. The maximum permitted market-price deviation is configured through `MITROS_RISK_MAX_MARKET_PRICE_DEVIATION_FRACTION`.
 
 A failed hard check returns `REJECTED`, `approved_notional=0`, and explicit reasons. Risk decisions and their `RiskEvaluated` event are written in one database transaction with request, policy, decision, evidence, and engine-version snapshots. Idempotency is scoped to the authenticated user.
 
