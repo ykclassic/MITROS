@@ -7,3 +7,5 @@ Phase 0 establishes the canonical architecture, contracts, data model, event mod
 Phase 1 establishes authoritative market-data ingestion, normalization, validation, freshness, deterministic provider failover, and provenance-bearing MarketDataUpdated events.
 
 Phase 2 establishes the deterministic feature / indicator engine. It consumes only completed, VERIFIED Phase 1 candles and emits versioned FeatureSnapshot records plus FeaturesComputed events. The canonical technical feature set is versioned independently so strategies can consume stable feature contracts without embedding indicator calculations.
+
+Phase 3 introduces a deterministic strategy portfolio evaluator that applies strategy eligibility, regime suitability, weighted directional consensus, confidence-weighted multi-timeframe alignment, measurable evidence gates, conflict detection, and explicit QUALIFIED / WAIT / NO_TRADE outcomes. A qualified assessment is not risk approval or execution authorization; all later risk and human-approval gates remain mandatory.
