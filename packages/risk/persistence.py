@@ -133,6 +133,6 @@ class PostgresPhase4RiskDecisionRepository:
         except RiskDecisionPersistenceError:
             raise
         except (psycopg.Error, ValueError, TypeError) as exc:
-        raise RiskDecisionPersistenceError(
-            "risk decision audit persistence failed"
-        ) from exc
+            raise RiskDecisionPersistenceError(
+                "risk decision audit persistence failed"
+            ) from exc
