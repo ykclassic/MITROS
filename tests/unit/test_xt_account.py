@@ -55,6 +55,20 @@ async def test_xt_account_snapshot_parses_signed_spot_balances() -> None:
     assert len(calls) == 3
 
 
+@pytest.mark.asyncio
+async def test_xt_ticker_without_exchange_timestamp_fails_closed() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "rc": 0,
+            "result": [{"s": "btc_usdt", "bp": "64999", "ap": "65001", "c": "65000"}],
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        xt = XTSpotClient(base_url="https://xt.test", client=client)
+        with pytest.raises(XTSpotError, match="missing a valid exchange timestamp"):
+            await xt.market_ticker("BTC/USDT")
+
+
 def test_xt_signature_matches_documented_canonical_material() -> None:
     xt = XTSpotClient(api_key="app-key", api_secret="secret", base_url="https://xt.test")
     import time
