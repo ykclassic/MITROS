@@ -12,7 +12,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from contracts.intelligence import (
@@ -53,6 +53,9 @@ from packages.operations.config import ProductionConfig
 from packages.research.copilot import GroundedResearchCopilot
 from packages.research.platform import ResearchPlatform
 from packages.risk.engine import AdvancedRiskEngine
+from contracts.phase4_risk import RiskDecisionResult, RiskEvaluationRequest, RiskPolicy
+from packages.risk.phase4 import IndependentRiskGate
+from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
 from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
@@ -61,6 +64,17 @@ from packages.strategies.smc import SMCStrategy
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 logger = logging.getLogger("mitros.api")
+
+
+class Phase4RiskEvaluationPayload(BaseModel):
+    request: RiskEvaluationRequest
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class Phase4RiskEvaluationResponse(BaseModel):
+    scope: str
+    audit_id: str
+    decision: RiskDecisionResult
 
 
 class ApiHealth(BaseModel):
@@ -420,7 +434,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=origins or ["http://localhost:3000"],
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["Accept", "Authorization", "Content-Type", "X-MITROS-Request-ID"],
     )
 
@@ -594,6 +608,72 @@ def create_app() -> FastAPI:
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/risk/phase4/scenario", response_model=Phase4RiskEvaluationResponse)
+    async def phase4_risk_scenario(
+        payload: Phase4RiskEvaluationPayload,
+        user: CurrentUser,
+        request_id: str | None = None,
+    ) -> Phase4RiskEvaluationResponse:
+        # Caller-supplied portfolio state is never accepted as live account state.
+        # Keep the route unavailable in live mode until an authoritative account adapter exists.
+        if os.getenv("MITROS_EXECUTION_MODE", "paper").strip().lower() == "live":
+            raise HTTPException(
+                status_code=503,
+                detail="Phase 4 evaluation is disabled in live mode until authoritative account-state integration is configured",
+            )
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            raise HTTPException(status_code=503, detail="Durable risk-decision audit storage is unavailable")
+
+        try:
+            policy = RiskPolicy(
+                max_risk_per_trade=Decimal(os.environ["MITROS_RISK_MAX_RISK_PER_TRADE"]),
+                max_position_fraction=Decimal(os.environ["MITROS_RISK_MAX_POSITION_FRACTION"]),
+                max_gross_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_GROSS_EXPOSURE_FRACTION"]),
+                max_daily_loss_fraction=Decimal(os.environ["MITROS_RISK_MAX_DAILY_LOSS_FRACTION"]),
+                max_drawdown_fraction=Decimal(os.environ["MITROS_RISK_MAX_DRAWDOWN_FRACTION"]),
+                max_asset_concentration_fraction=Decimal(os.environ["MITROS_RISK_MAX_ASSET_CONCENTRATION_FRACTION"]),
+                max_correlated_positions=int(os.environ["MITROS_RISK_MAX_CORRELATED_POSITIONS"]),
+                max_correlated_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_CORRELATED_EXPOSURE_FRACTION"]),
+                max_open_positions=int(os.environ["MITROS_RISK_MAX_OPEN_POSITIONS"]),
+                min_risk_reward=Decimal(os.environ["MITROS_RISK_MIN_RISK_REWARD"]),
+                max_spread_fraction=Decimal(os.environ["MITROS_RISK_MAX_SPREAD_FRACTION"]),
+                max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
+                min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
+                max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
+            )
+        except (KeyError, ValueError) as exc:
+            logger.error("phase4_risk_policy_configuration_invalid")
+            raise HTTPException(
+                status_code=503,
+                detail="Phase 4 risk policy is not completely configured",
+            ) from exc
+
+        try:
+            decision = IndependentRiskGate(policy).evaluate(payload.request)
+            from uuid import UUID, uuid4
+            correlation_id = UUID(request_id) if request_id else uuid4()
+            row = await PostgresPhase4RiskDecisionRepository(database_url).record(
+                user_id=user.user_id,
+                idempotency_key=payload.idempotency_key,
+                request=payload.request,
+                policy=policy,
+                decision=decision,
+                correlation_id=correlation_id,
+            )
+        except (ValueError, RiskDecisionPersistenceError) as exc:
+            logger.warning("phase4_risk_evaluation_rejected category=%s", type(exc).__name__)
+            raise HTTPException(status_code=422, detail="Phase 4 risk evaluation could not be recorded") from exc
+        except Exception as exc:
+            logger.error("phase4_risk_audit_unavailable error_type=%s", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Risk decision audit storage is unavailable") from exc
+
+        return Phase4RiskEvaluationResponse(
+            scope="SCENARIO_ONLY",
+            audit_id=str(row["id"]),
+            decision=decision,
+        )
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
