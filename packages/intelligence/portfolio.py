@@ -150,7 +150,18 @@ def evaluate_portfolio(data: PortfolioEvaluationInput) -> PortfolioEvaluation:
             reasons.append("No eligible strategy supplied a directional, evidence-backed vote.")
         else:
             if long_score == short_score:
-                reasons.append("Directional strategy scores are tied; conflict prevents selection.")
+                long_votes = sum(
+                    1 for item in supporting_items if item.direction == Direction.LONG
+                )
+                short_votes = sum(
+                    1 for item in supporting_items if item.direction == Direction.SHORT
+                )
+                supporting = max(long_votes, short_votes)
+                opposing = min(long_votes, short_votes)
+                reasons.append(
+                    "Directional strategy scores are tied; conflict prevents selection. "
+                    f"Long votes: {long_votes}; short votes: {short_votes}."
+                )
             else:
                 direction = Direction.LONG if long_score > short_score else Direction.SHORT
                 winning_score = max(long_score, short_score)
