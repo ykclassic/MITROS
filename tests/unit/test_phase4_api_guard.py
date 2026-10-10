@@ -120,6 +120,7 @@ def _phase4_proposal_fixture():
     request = RiskEvaluationRequest(
         proposal_id=str(signal.id), asset="BTC/USDT", correlated_group="BTC-beta",
         direction=Direction.LONG, as_of=now, quote_observed_at=now - timedelta(seconds=2),
+        verified_reference_price=Decimal("100"), current_market_price=Decimal("100"),
         data_verified=True, data_quality=Decimal("1"), equity=Decimal("10000"),
         daily_pnl=Decimal("0"), peak_equity=Decimal("10000"), open_positions=(),
         requested_notional=Decimal("1000"), entry=Decimal("100"), stop_loss=Decimal("95"),
