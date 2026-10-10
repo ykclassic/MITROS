@@ -63,6 +63,7 @@ jobs:
       - run: test -s supabase/migrations/20261008211000_0008_coinbase_advanced_public.sql
       - run: test -s supabase/migrations/20261009060000_0009_intelligence_snapshots.sql
       - run: test -s supabase/migrations/20261010180000_0010_phase4_risk_decision_audit.sql
+      - run: test -s supabase/migrations/20261010190000_0011_phase4_xt_portfolio_snapshots.sql
   configuration:
     runs-on: ubuntu-latest
     steps:
