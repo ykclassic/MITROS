@@ -20,5 +20,5 @@ jobs:
       - name: Require durable risk audit schema
         run: test -s supabase/migrations/20261010180000_0010_phase4_risk_decision_audit.sql
       - name: Require documented live-mode fail-closed boundary
-        run: grep -q "XTSpotClient" packages/api/app.py
+        run: grep -q "build_account_client" packages/api/app.py
       - run: grep -q "MITROS_XT_LIVE_ORDERS_ENABLED" packages/execution/xt.py
