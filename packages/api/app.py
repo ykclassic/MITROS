@@ -762,136 +762,188 @@ def create_app() -> FastAPI:
         user: CurrentUser,
         request_id: str | None = None,
     ) -> Phase4RiskEvaluationResponse:
+        response, _, _ = await _evaluate_phase4_intent(
+            payload, user_id=user.user_id, request_id=request_id
+        )
+        return response
+
+    @app.post("/api/v1/proposals/phase4", response_model=Phase4ProposalCreateResponse)
+    async def create_phase4_proposal(
+        payload: Phase4ProposalCreatePayload,
+        user: CurrentUser,
+        request_id: str | None = None,
+    ) -> Phase4ProposalCreateResponse:
+        if str(payload.signal.id) != payload.intent.proposal_id:
+            raise HTTPException(status_code=422, detail="Signal and proposal identifiers must match")
+        if payload.signal.asset != payload.intent.asset or payload.signal.direction is not payload.intent.direction:
+            raise HTTPException(status_code=422, detail="Signal and risk intent asset/direction must match")
+        response, risk_request, _ = await _evaluate_phase4_intent(
+            payload.intent, user_id=user.user_id, request_id=request_id
+        )
+        if response.decision.disposition is not RiskDisposition.APPROVED:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Independent Phase 4 risk gate rejected proposal creation",
+                    "audit_id": response.audit_id,
+                    "rejection_reasons": list(response.decision.rejection_reasons),
+                },
+            )
+        try:
+            proposal = Phase4TradeProposalBuilder().build(
+                payload.signal,
+                risk_request,
+                response.decision,
+                venue="xt.com",
+                regime=payload.regime,
+                mtf_alignment=payload.mtf_alignment,
+                model_versions=payload.model_versions,
+            )
+            await PostgresPhase4ProposalRepository(
+                os.environ["MITROS_DATABASE_URL"]
+            ).create_approved(
+                user_id=user.user_id,
+                proposal=proposal,
+                request=risk_request,
+                decision=response.decision,
+                audit_id=UUID(response.audit_id),
+            )
+        except (ValueError, Phase4ProposalPersistenceError) as exc:
+            logger.warning("phase4_proposal_creation_blocked category=%s", type(exc).__name__)
+            raise HTTPException(status_code=409, detail="Phase 4 proposal could not be persisted") from exc
+        return Phase4ProposalCreateResponse(
+            audit_id=response.audit_id,
+            account_snapshot_id=response.account_snapshot_id,
+            proposal=proposal,
+        )
+
+    @app.post("/api/v1/proposals/{proposal_id}/approve", response_model=Phase4ApprovalResponse)
+    async def approve_phase4_proposal(
+        proposal_id: UUID,
+        payload: Phase4ApprovalPayload,
+        user: CurrentUser,
+    ) -> Phase4ApprovalResponse:
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
             raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
+        repository = PostgresPhase4ProposalRepository(database_url)
+        proposal = await repository.get(user_id=user.user_id, proposal_id=proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        if proposal.approval_status.value != "PENDING":
+            raise HTTPException(status_code=409, detail="Proposal is no longer pending approval")
+        if not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
+            raise HTTPException(status_code=409, detail="Proposal has no Phase 4 risk provenance")
 
-        try:
-            policy = RiskPolicy(
-                max_risk_per_trade=Decimal(os.environ["MITROS_RISK_MAX_RISK_PER_TRADE"]),
-                max_position_fraction=Decimal(os.environ["MITROS_RISK_MAX_POSITION_FRACTION"]),
-                max_gross_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_GROSS_EXPOSURE_FRACTION"]),
-                max_daily_loss_fraction=Decimal(os.environ["MITROS_RISK_MAX_DAILY_LOSS_FRACTION"]),
-                max_drawdown_fraction=Decimal(os.environ["MITROS_RISK_MAX_DRAWDOWN_FRACTION"]),
-                max_asset_concentration_fraction=Decimal(os.environ["MITROS_RISK_MAX_ASSET_CONCENTRATION_FRACTION"]),
-                max_correlated_positions=int(os.environ["MITROS_RISK_MAX_CORRELATED_POSITIONS"]),
-                max_correlated_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_CORRELATED_EXPOSURE_FRACTION"]),
-                max_open_positions=int(os.environ["MITROS_RISK_MAX_OPEN_POSITIONS"]),
-                min_risk_reward=Decimal(os.environ["MITROS_RISK_MIN_RISK_REWARD"]),
-                max_spread_fraction=Decimal(os.environ["MITROS_RISK_MAX_SPREAD_FRACTION"]),
-                max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
-                min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
-                max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
-            )
-            expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
-        except (KeyError, ValueError) as exc:
-            logger.error("phase4_risk_policy_configuration_invalid")
+        revalidation_key = f"{payload.idempotency_key[:130]}-revalidation-{uuid4()}"
+        intent = Phase4RiskIntent(
+            proposal_id=str(proposal.id),
+            asset=proposal.asset,
+            direction=proposal.direction,
+            entry=proposal.entry,
+            stop_loss=proposal.stop,
+            take_profit=proposal.target,
+            requested_notional=proposal.position_size,
+            idempotency_key=revalidation_key,
+        )
+        refreshed, _, _ = await _evaluate_phase4_intent(intent, user_id=user.user_id)
+        if (
+            refreshed.decision.disposition is not RiskDisposition.APPROVED
+            or refreshed.decision.approved_notional != proposal.position_size
+        ):
             raise HTTPException(
-                status_code=503,
-                detail="Phase 4 risk policy is not completely configured",
-            ) from exc
-
-        xt = XTSpotClient()
+                status_code=409,
+                detail={
+                    "message": "Current account state or market evidence no longer passes Phase 4 risk",
+                    "risk_audit_id": refreshed.audit_id,
+                    "rejection_reasons": list(refreshed.decision.rejection_reasons),
+                },
+            )
         try:
-            # XT is the account/portfolio authority for this building phase.
-            xt_account = await xt.account_snapshot()
-            btc_usdt_price = await xt.btc_usdt_price()
-            account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
-                user_id=user.user_id,
-                account=xt_account,
-                btc_usdt_price=btc_usdt_price,
-            )
-
-            # Proposal evidence must independently pass the verified market-data pipeline.
-            batch = await (await build_verified_service()).candles(
-                MarketDataRequest(asset=payload.asset, venue="spot", timeframe="1m", limit=2)
-            )
-            if not batch.candles or any(c.quality is not DataQuality.VERIFIED for c in batch.candles):
-                raise RuntimeError("verified market-data evidence unavailable")
-            latest_candle = max(batch.candles, key=lambda candle: candle.close_time)
-            ticker = await xt.market_ticker(payload.asset)
-            bid = Decimal(str(ticker["bid"]))
-            ask = Decimal(str(ticker["ask"]))
-            mid = (bid + ask) / Decimal("2")
-            spread_fraction = (ask - bid) / mid
-            entry = payload.entry if payload.entry is not None else Decimal(str(ticker["last"]))
-            correlated_group = _phase4_correlation_group(payload.asset)
-            request = RiskEvaluationRequest(
-                proposal_id=payload.proposal_id,
-                asset=payload.asset,
-                correlated_group=correlated_group,
-                direction=payload.direction,
-                as_of=datetime.now(UTC),
-                quote_observed_at=ticker["observed_at"],
-                account_source="xt.com",
-                account_snapshot_id=account_state["snapshot_id"],
-                account_snapshot_at=account_state["snapshot_at"],
-                market_evidence=(
-                    f"verified-candle-provider:{latest_candle.provider}",
-                    f"verified-candle-version:{latest_candle.provider_version or 'unknown'}",
-                    f"verified-candle-checksum:{batch.batch_checksum}",
-                    f"xt-ticker-bid:{bid}",
-                    f"xt-ticker-ask:{ask}",
-                    f"xt-ticker-last:{ticker['last']}",
-                ),
-                data_verified=True,
-                data_quality=Decimal("1"),
-                equity=account_state["equity"],
-                daily_pnl=account_state["daily_pnl"],
-                peak_equity=account_state["peak_equity"],
-                open_positions=account_state["open_positions"],
-                requested_notional=payload.requested_notional,
-                entry=entry,
-                stop_loss=payload.stop_loss,
-                take_profit=payload.take_profit,
-                spread_fraction=spread_fraction,
-                expected_slippage_fraction=expected_slippage,
-            )
-            decision = IndependentRiskGate(policy).evaluate(request)
-            from uuid import UUID, uuid4
-            correlation_id = UUID(request_id) if request_id else uuid4()
-            row = await PostgresPhase4RiskDecisionRepository(database_url).record(
-                user_id=user.user_id,
+            outcome = HumanApprovalManager().approve(
+                proposal,
+                actor=user.user_id,
+                reason=payload.reason,
                 idempotency_key=payload.idempotency_key,
-                request=request,
-                policy=policy,
-                decision=decision,
-                correlation_id=correlation_id,
+                now=datetime.now(UTC),
             )
-        except (XTSpotError, PortfolioSnapshotError, RuntimeError, ValueError) as exc:
-            logger.warning("phase4_risk_evaluation_unavailable category=%s", type(exc).__name__)
-            raise HTTPException(
-                status_code=503,
-                detail="XT account state or verified market-data evidence is unavailable",
-            ) from exc
-        except RiskDecisionPersistenceError as exc:
-            logger.error("phase4_risk_audit_unavailable")
-            raise HTTPException(status_code=503, detail="Risk decision audit storage is unavailable") from exc
-        except Exception as exc:
-            logger.error("phase4_risk_evaluation_failed category=%s", type(exc).__name__)
-            raise HTTPException(status_code=503, detail="Phase 4 risk evaluation is unavailable") from exc
+            token = outcome.approval.approval_token
+            if not token:
+                raise ValueError("approval manager did not issue an approval token")
+            await repository.record_approval(
+                user_id=user.user_id,
+                proposal=proposal,
+                actor=user.user_id,
+                reason=payload.reason,
+                idempotency_key=payload.idempotency_key,
+                token_digest=approval_token_digest(token),
+                decided_at=outcome.approval.decided_at,
+                risk_audit_id=UUID(refreshed.audit_id),
+            )
+        except (ValueError, Phase4ProposalPersistenceError) as exc:
+            logger.warning("phase4_approval_blocked category=%s", type(exc).__name__)
+            raise HTTPException(status_code=409, detail="Human approval could not be recorded") from exc
+        return Phase4ApprovalResponse(
+            proposal_id=str(proposal.id),
+            status="APPROVED",
+            actor=user.user_id,
+            approved_at=outcome.approval.decided_at,
+            risk_revalidation_audit_id=refreshed.audit_id,
+            approval_token=token,
+        )
 
-        return Phase4RiskEvaluationResponse(
-            scope="XT_ACCOUNT",
-            audit_id=str(row["id"]),
-            account_snapshot_id=account_state["snapshot_id"],
-            market_evidence={
-                "provider": latest_candle.provider,
-                "provider_version": latest_candle.provider_version or "unknown",
-                "asset": payload.asset,
-                "venue": latest_candle.venue,
-                "timeframe": latest_candle.timeframe,
-                "latest_verified_close": str(latest_candle.close),
-                "candle_observed_at": latest_candle.observed_at.isoformat(),
-                "candle_received_at": latest_candle.received_at.isoformat(),
-                "batch_checksum": batch.batch_checksum,
-                "xt_bid": str(bid),
-                "xt_ask": str(ask),
-                "xt_last": str(ticker["last"]),
-                "spread_fraction": str(spread_fraction),
-                "quote_observed_at": ticker["observed_at"].isoformat(),
-            },
-            decision=decision,
+    @app.post("/api/v1/proposals/{proposal_id}/execute", response_model=Phase4ExecutionResponse)
+    async def execute_phase4_proposal(
+        proposal_id: UUID,
+        payload: Phase4ExecutionPayload,
+        user: CurrentUser,
+    ) -> Phase4ExecutionResponse:
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
+        repository = PostgresPhase4ProposalRepository(database_url)
+        proposal = await repository.get(user_id=user.user_id, proposal_id=proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        if proposal.approval_status.value != "APPROVED":
+            raise HTTPException(status_code=409, detail="Human approval is required before execution")
+        if not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
+            raise HTTPException(status_code=409, detail="Execution requires Phase 4 risk provenance")
+        if datetime.now(UTC) >= proposal.expires_at:
+            raise HTTPException(status_code=409, detail="Proposal has expired; create a new proposal")
+        digest = await repository.approval_digest(user_id=user.user_id, proposal_id=proposal_id)
+        if not digest or not verify_approval_token(payload.approval_token, digest):
+            raise HTTPException(status_code=403, detail="Approval token is invalid")
+        try:
+            config = ProductionConfig.from_env()
+            gateway = build_venue_gateway(config)
+            if isinstance(gateway, XTSpotExecutionGateway):
+                gateway._require_live_enabled()
+            await repository.reserve_execution(user_id=user.user_id, proposal=proposal)
+        except (ValueError, XTExecutionError, Phase4ProposalPersistenceError) as exc:
+            raise HTTPException(status_code=409, detail="Execution is disabled or intent could not be recorded") from exc
+
+        boundary = ProposalExecutionGateway(gateway, approval_digest=digest)
+        try:
+            result = boundary.submit(proposal, payload.approval_token)
+            await repository.record_execution(user_id=user.user_id, proposal_id=proposal_id, result=result)
+        except Exception as exc:
+            try:
+                await repository.mark_execution_unknown(
+                    user_id=user.user_id, proposal_id=proposal_id,
+                    reason="submission outcome uncertain; reconcile with venue before retry",
+                )
+            except Phase4ProposalPersistenceError:
+                logger.error("phase4_execution_unknown_persistence_failed")
+            logger.error("phase4_execution_requires_reconciliation category=%s", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="Execution outcome uncertain; reconciliation required") from exc
+        return Phase4ExecutionResponse(
+            proposal_id=str(proposal_id),
+            execution_status=result.status,
+            venue_order_id=result.venue_order_id,
+            filled_quantity=str(result.filled_quantity),
+            average_price=str(result.average_price) if result.average_price is not None else None,
+            reason=result.reason,
         )
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
