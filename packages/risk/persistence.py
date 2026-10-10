@@ -51,9 +51,8 @@ class PostgresPhase4RiskDecisionRepository:
         try:
             async with await psycopg.AsyncConnection.connect(
                 self.database_url, row_factory=dict_row
-            ) as connection:
-                async with connection.transaction():
-                    async with connection.cursor() as cursor:
+            ) as connection, connection.transaction():
+                async with connection.cursor() as cursor:
                         await cursor.execute(
                             """
                             insert into phase4_risk_decisions (
