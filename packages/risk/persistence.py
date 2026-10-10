@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import psycopg
 from psycopg.rows import dict_row
 
 from contracts.phase4_risk import RiskDecisionResult, RiskEvaluationRequest, RiskPolicy
+
+
+def _is_uuid(value: str) -> bool:
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True
 
 
 class RiskDecisionPersistenceError(RuntimeError):
@@ -111,7 +119,7 @@ class PostgresPhase4RiskDecisionRepository:
                             )
                             """,
                             (
-                                UUID(request.proposal_id),
+                                UUID(request.proposal_id) if _is_uuid(request.proposal_id) else uuid5(NAMESPACE_URL, request.proposal_id),
                                 decision.evaluated_at,
                                 decision.risk_engine_version,
                                 correlation_id,
