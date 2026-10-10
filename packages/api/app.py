@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import asyncio
 import os
 import logging
 from datetime import UTC, datetime
@@ -66,6 +67,7 @@ from packages.approval.manager import HumanApprovalManager
 from packages.execution import ProposalExecutionGateway, build_venue_gateway
 from packages.execution.security import approval_token_digest, verify_approval_token
 from packages.execution.xt import XTExecutionError, XTSpotExecutionGateway
+from packages.execution.protection import XTSpotProtectionMonitor
 from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
@@ -243,6 +245,21 @@ async def load_candles(asset: str, venue: str, timeframe: str, limit: int) -> li
         return list(batch.candles)
 
     return await candle_cache.get_or_load(key, fetch)
+
+
+async def _run_xt_protection_loop(monitor: XTSpotProtectionMonitor) -> None:
+    while True:
+        try:
+            await monitor.run_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("xt_protection_monitor_cycle_failed category=%s", type(exc).__name__)
+        try:
+            interval = max(1, int(os.getenv("MITROS_XT_PROTECTION_POLL_SECONDS", "5")))
+        except ValueError:
+            interval = 5
+        await asyncio.sleep(interval)
 
 
 def _phase4_correlation_group(asset: str) -> str:
@@ -800,6 +817,7 @@ def create_app() -> FastAPI:
             and os.getenv("MITROS_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
             and os.getenv("MITROS_LIVE_TRADING_ACK", "").strip() == "I_UNDERSTAND_LIVE_TRADING"
             and os.getenv("MITROS_XT_LIVE_ORDERS_ENABLED", "false").strip().lower() == "true"
+            and os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() == "true"
         )
         checks = {
             "database_configured": bool(database_url),
@@ -1134,6 +1152,27 @@ def create_app() -> FastAPI:
             source_timestamp=artifact.created_at,
         )
         return GroundedResearchCopilot().answer(report.query, (evidence,), generated_at=datetime.now(UTC))
+
+    @app.on_event("startup")
+    async def start_xt_protection_monitor() -> None:
+        if os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() != "true":
+            return
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            logger.error("xt_protection_monitor_not_started reason=database_not_configured")
+            return
+        task = asyncio.create_task(_run_xt_protection_loop(XTSpotProtectionMonitor(database_url)))
+        app.state.xt_protection_task = task
+
+    @app.on_event("shutdown")
+    async def stop_xt_protection_monitor() -> None:
+        task = getattr(app.state, "xt_protection_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     return app
 
