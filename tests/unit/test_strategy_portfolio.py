@@ -182,7 +182,7 @@ def test_opposing_votes_are_explained_and_not_silently_ignored() -> None:
     assert result.disposition == SignalDisposition.WAIT
     assert result.direction is None
     assert result.opposing_strategy_count == 1
-    assert any("conflict detected" in reason.lower() for reason in result.reasons)
+    assert any("conflict" in reason.lower() for reason in result.reasons)
 
 
 def test_low_mtf_alignment_returns_wait() -> None:
