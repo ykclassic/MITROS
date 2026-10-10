@@ -44,6 +44,15 @@ class ProposalExecutionGateway:
             asset=proposal.asset,
             side=side,
             quantity=quantity,
-            order_type=ExecutionOrderType.MARKET,
+            order_type=(
+                ExecutionOrderType.LIMIT
+                if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"}
+                else ExecutionOrderType.MARKET
+            ),
+            limit_price=(
+                proposal.entry
+                if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"}
+                else None
+            ),
         )
         return self._venue_gateway.submit(order, approval_token)
