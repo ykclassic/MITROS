@@ -84,3 +84,142 @@ def test_phase4_requires_xt_credentials_before_any_risk_decision(monkeypatch) ->
     response = _post(INTENT)
     assert response.status_code == 503
     assert "XT account state" in response.json()["detail"]
+
+
+
+def _phase4_proposal_fixture():
+    from datetime import UTC, datetime, timedelta
+    from decimal import Decimal
+    from uuid import uuid4
+
+    from contracts.domain import Direction, StrategyVote
+    from contracts.phase4_risk import RiskEvaluationRequest, RiskPolicy
+    from contracts.signal import SignalRecord
+    from packages.proposals.phase4_builder import Phase4TradeProposalBuilder
+    from packages.risk.phase4 import IndependentRiskGate
+
+    now = datetime.now(UTC)
+    signal = SignalRecord(
+        id=uuid4(), asset="BTC/USDT", venue="spot", direction=Direction.LONG,
+        created_at=now, expires_at=now + timedelta(minutes=15),
+        strategy_votes=(StrategyVote(
+            strategy_id="smc", strategy_version="1.0.0", direction=Direction.LONG,
+            confidence=Decimal("0.9"),
+        ),),
+        confidence=Decimal("0.9"),
+    )
+    policy = RiskPolicy(
+        max_risk_per_trade=Decimal("0.01"), max_position_fraction=Decimal("0.20"),
+        max_gross_exposure_fraction=Decimal("1"), max_daily_loss_fraction=Decimal("0.03"),
+        max_drawdown_fraction=Decimal("0.10"), max_asset_concentration_fraction=Decimal("0.30"),
+        max_correlated_positions=2, max_correlated_exposure_fraction=Decimal("0.40"),
+        max_open_positions=5, min_risk_reward=Decimal("2"),
+        max_spread_fraction=Decimal("0.002"), max_slippage_fraction=Decimal("0.001"),
+        min_data_quality=Decimal("0.90"), max_quote_age_seconds=60,
+    )
+    request = RiskEvaluationRequest(
+        proposal_id=str(signal.id), asset="BTC/USDT", correlated_group="BTC-beta",
+        direction=Direction.LONG, as_of=now, quote_observed_at=now - timedelta(seconds=2),
+        data_verified=True, data_quality=Decimal("1"), equity=Decimal("10000"),
+        daily_pnl=Decimal("0"), peak_equity=Decimal("10000"), open_positions=(),
+        requested_notional=Decimal("1000"), entry=Decimal("100"), stop_loss=Decimal("95"),
+        take_profit=Decimal("110"), spread_fraction=Decimal("0.001"),
+        expected_slippage_fraction=Decimal("0.001"),
+    )
+    decision = IndependentRiskGate(policy).evaluate(request)
+    proposal = Phase4TradeProposalBuilder().build(
+        signal, request, decision, venue="xt.com", regime="TREND_UP",
+        mtf_alignment=Decimal("0.9"), now=now,
+    )
+    return signal, policy, request, decision, proposal
+
+
+def test_rejected_fresh_risk_cannot_advance_proposal_to_human_approval(monkeypatch) -> None:
+    from decimal import Decimal
+    from packages.api import app as api_module
+    from contracts.phase4_risk import RiskDisposition
+    from packages.risk.phase4 import IndependentRiskGate
+
+    _, policy, request, _, proposal = _phase4_proposal_fixture()
+    rejected_request = request.model_copy(update={"daily_pnl": Decimal("-500")})
+    rejected_decision = IndependentRiskGate(policy).evaluate(rejected_request)
+    assert rejected_decision.disposition is RiskDisposition.REJECTED
+    response = api_module.Phase4RiskEvaluationResponse(
+        scope="XT_ACCOUNT", audit_id="00000000-0000-0000-0000-000000000055",
+        account_snapshot_id="snapshot-test", market_evidence={}, decision=rejected_decision,
+    )
+
+    class FakeRepository:
+        approvals = []
+
+        def __init__(self, database_url: str) -> None:
+            pass
+
+        async def get(self, *, user_id: str, proposal_id):
+            return proposal
+
+        async def record_approval(self, **kwargs) -> None:
+            self.approvals.append(kwargs)
+
+    fake = FakeRepository("unused")
+
+    async def evaluate(*args, **kwargs):
+        return response, rejected_request, policy
+
+    monkeypatch.setenv("MITROS_DATABASE_URL", "postgresql://unused/test")
+    monkeypatch.setattr(api_module, "PostgresPhase4ProposalRepository", lambda database_url: fake)
+    monkeypatch.setattr(api_module, "_evaluate_phase4_intent", evaluate)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        result = TestClient(app).post(
+            f"/api/v1/proposals/{proposal.id}/approve",
+            json={"reason": "reviewed", "idempotency_key": "approve-test-key"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert result.status_code == 409
+    assert fake.approvals == []
+
+
+def test_approved_proposal_revalidates_risk_before_issuing_human_approval(monkeypatch) -> None:
+    from packages.api import app as api_module
+
+    _, policy, request, decision, proposal = _phase4_proposal_fixture()
+    response = api_module.Phase4RiskEvaluationResponse(
+        scope="XT_ACCOUNT", audit_id="00000000-0000-0000-0000-000000000056",
+        account_snapshot_id="snapshot-fresh", market_evidence={}, decision=decision,
+    )
+
+    class FakeRepository:
+        approval_record = None
+
+        def __init__(self, database_url: str) -> None:
+            pass
+
+        async def get(self, *, user_id: str, proposal_id):
+            return proposal
+
+        async def record_approval(self, **kwargs) -> None:
+            self.approval_record = kwargs
+
+    fake = FakeRepository("unused")
+
+    async def evaluate(*args, **kwargs):
+        return response, request, policy
+
+    monkeypatch.setenv("MITROS_DATABASE_URL", "postgresql://unused/test")
+    monkeypatch.setattr(api_module, "PostgresPhase4ProposalRepository", lambda database_url: fake)
+    monkeypatch.setattr(api_module, "_evaluate_phase4_intent", evaluate)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        result = TestClient(app).post(
+            f"/api/v1/proposals/{proposal.id}/approve",
+            json={"reason": "fresh risk revalidated", "idempotency_key": "approve-test-key-2"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert result.status_code == 200
+    assert result.json()["status"] == "APPROVED"
+    assert result.json()["approval_token"]
+    assert fake.approval_record is not None
+    assert str(fake.approval_record["risk_audit_id"]) == response.audit_id
