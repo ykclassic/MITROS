@@ -42,6 +42,10 @@ class RiskEvaluationRequest(BaseModel):
     direction: Direction
     as_of: datetime
     quote_observed_at: datetime
+    account_source: str = "xt.com"
+    account_snapshot_id: str | None = None
+    account_snapshot_at: datetime | None = None
+    market_evidence: tuple[str, ...] = ()
     data_verified: bool
     data_quality: Decimal = Field(ge=0, le=1)
     equity: Decimal = Field(gt=0)
