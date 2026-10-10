@@ -64,8 +64,8 @@ def test_hard_gate_rejects_each_invalid_condition(changes: dict[str, object], ch
 
 def test_correlated_and_open_position_limits_are_enforced() -> None:
     positions = (
-        OpenPosition(asset="ETH/USD", notional=Decimal("1000"), correlated_group="BTC-beta", direction=Direction.LONG),
-        OpenPosition(asset="SOL/USD", notional=Decimal("1000"), correlated_group="BTC-beta", direction=Direction.LONG),
+        OpenPosition(asset="ETH/USD", notional=Decimal("2000"), correlated_group="BTC-beta", direction=Direction.LONG),
+        OpenPosition(asset="SOL/USD", notional=Decimal("2000"), correlated_group="BTC-beta", direction=Direction.LONG),
     )
     result = IndependentRiskGate(policy()).evaluate(request(open_positions=positions))
     assert result.disposition is RiskDisposition.REJECTED
