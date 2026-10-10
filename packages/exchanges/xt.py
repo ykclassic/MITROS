@@ -164,9 +164,12 @@ class XTSpotClient:
         if item is None:
             raise XTSpotError("XT ticker response is missing the expected result")
         try:
-            bid = Decimal(str(item.get("bidPrice", item.get("bp", item.get("bid")))))
-            ask = Decimal(str(item.get("askPrice", item.get("ap", item.get("ask")))))
-            last = Decimal(str(item.get("lastPrice", item.get("c", item.get("last", item.get("price")))))
+            bid_value = item.get("bidPrice") or item.get("bp") or item.get("bid")
+            ask_value = item.get("askPrice") or item.get("ap") or item.get("ask")
+            last_value = item.get("lastPrice") or item.get("c") or item.get("last") or item.get("price")
+            bid = Decimal(str(bid_value))
+            ask = Decimal(str(ask_value))
+            last = Decimal(str(last_value))
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise XTSpotError("XT ticker response has invalid bid/ask/last values") from exc
         if bid <= 0 or ask < bid or last <= 0:
