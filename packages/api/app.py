@@ -55,7 +55,8 @@ from packages.research.platform import ResearchPlatform
 from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvaluationRequest, RiskPolicy
 from packages.risk.phase4 import IndependentRiskGate
 from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
-from packages.exchanges.xt import XTSpotClient, XTSpotError
+from packages.exchanges.xt import XTSpotError
+from packages.exchanges.registry import build_account_client
 from packages.risk.account_state import PostgresXTPortfolioRepository, PortfolioSnapshotError
 from contracts.signal import SignalRecord
 from packages.proposals.phase4_builder import Phase4TradeProposalBuilder
@@ -379,7 +380,10 @@ async def _evaluate_phase4_intent(
         logger.error("phase4_risk_policy_configuration_invalid")
         raise HTTPException(status_code=503, detail="Phase 4 risk policy is not completely configured") from exc
 
-    xt = XTSpotClient()
+    try:
+        xt = build_account_client()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Configured account exchange is not supported") from exc
     try:
         xt_account = await xt.account_snapshot()
         btc_usdt_price = await xt.btc_usdt_price()
