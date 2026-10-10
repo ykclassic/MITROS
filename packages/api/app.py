@@ -806,8 +806,7 @@ def create_app() -> FastAPI:
         }
         if database_url:
             try:
-                async with await psycopg.AsyncConnection.connect(database_url) as connection:
-                    async with connection.cursor() as cursor:
+                async with await psycopg.AsyncConnection.connect(database_url) as connection, connection.cursor() as cursor:
                         await cursor.execute(
                             """
                             select
