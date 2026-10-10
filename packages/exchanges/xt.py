@@ -89,7 +89,8 @@ class XTSpotClient:
         params: dict[str, str] | None = None,
         signed: bool = False,
     ) -> dict[str, Any]:
-        query = urlencode(sorted((params or {}).items()))
+        ordered_params = dict(sorted((params or {}).items()))
+        query = urlencode(ordered_params)
         timestamp = str(int(time.time() * 1000))
         headers = (
             self._headers(method, path, timestamp, query, "")
@@ -100,7 +101,7 @@ class XTSpotClient:
             response = await client.request(
                 method.upper(),
                 f"{self.base_url}{path}",
-                params=params,
+                params=ordered_params or None,
                 headers=headers,
             )
             response.raise_for_status()
