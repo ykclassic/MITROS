@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import asyncio
 import os
 import logging
 from datetime import UTC, datetime
@@ -9,10 +10,12 @@ from decimal import Decimal
 from functools import lru_cache
 from itertools import pairwise
 from typing import Annotated
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+import psycopg
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from contracts.intelligence import (
@@ -29,8 +32,7 @@ from packages.api.auth import AuthenticatedUser, require_user
 from contracts.copilot import ResearchAnswer, ResearchEvidence, EvidenceKind
 from contracts.regime import RegimeSnapshot, StatisticalSnapshot
 from contracts.research import ResearchArtifactType, ResearchMetric, ResearchQuery, ResearchReport
-from contracts.domain import StrategyVote
-from contracts.risk import PortfolioState, PositionState, RiskAssessment, RiskLimits
+from contracts.domain import Direction, StrategyVote, TradeProposal
 from packages.features.engine import FeatureEngine
 from packages.intelligence.engine import MarketIntelligenceEngine
 from packages.market_data.cache import AsyncTTLCache
@@ -52,7 +54,20 @@ from packages.market_data.symbols import SymbolMapper
 from packages.operations.config import ProductionConfig
 from packages.research.copilot import GroundedResearchCopilot
 from packages.research.platform import ResearchPlatform
-from packages.risk.engine import AdvancedRiskEngine
+from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvaluationRequest, RiskPolicy
+from packages.risk.phase4 import IndependentRiskGate
+from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
+from packages.exchanges.xt import XTSpotError
+from packages.exchanges.registry import build_account_client
+from packages.risk.account_state import PostgresXTPortfolioRepository, PortfolioSnapshotError
+from contracts.signal import SignalRecord
+from packages.proposals.phase4_builder import Phase4TradeProposalBuilder
+from packages.proposals.persistence import PostgresPhase4ProposalRepository, Phase4ProposalPersistenceError
+from packages.approval.manager import HumanApprovalManager
+from packages.execution import ProposalExecutionGateway, build_venue_gateway
+from packages.execution.security import approval_token_digest, verify_approval_token
+from packages.execution.xt import XTExecutionError, XTSpotExecutionGateway
+from packages.execution.protection import XTSpotProtectionMonitor
 from packages.strategies.base import StrategyContext
 from packages.strategies.consensus import StrategyConsensusEngine
 from packages.strategies.crt import CRTStrategy
@@ -61,6 +76,72 @@ from packages.strategies.smc import SMCStrategy
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(require_user)]
 logger = logging.getLogger("mitros.api")
+
+
+class Phase4RiskIntent(BaseModel):
+    proposal_id: str = Field(min_length=1, max_length=100)
+    asset: str = Field(pattern=r"^[A-Z0-9]+/USDT$")
+    direction: Direction
+    entry: Decimal | None = Field(default=None, gt=0)
+    stop_loss: Decimal = Field(gt=0)
+    take_profit: Decimal = Field(gt=0)
+    requested_notional: Decimal = Field(gt=0)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class Phase4RiskEvaluationResponse(BaseModel):
+    scope: str
+    audit_id: str
+    account_snapshot_id: str
+    market_evidence: dict[str, object]
+    decision: RiskDecisionResult
+
+class Phase4ProposalCreatePayload(BaseModel):
+    intent: Phase4RiskIntent
+    signal: SignalRecord
+    regime: str = Field(min_length=1, max_length=80)
+    mtf_alignment: Decimal = Field(ge=0, le=1)
+    model_versions: tuple[str, ...] = ()
+
+
+class Phase4ProposalCreateResponse(BaseModel):
+    audit_id: str
+    account_snapshot_id: str
+    proposal: TradeProposal
+
+
+class Phase4ApprovalPayload(BaseModel):
+    reason: str = Field(min_length=3, max_length=1000)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class Phase4ApprovalResponse(BaseModel):
+    proposal_id: str
+    status: str
+    actor: str
+    approved_at: datetime
+    risk_revalidation_audit_id: str
+    approval_token: str
+
+
+class Phase4ExecutionPayload(BaseModel):
+    approval_token: str = Field(min_length=8, max_length=500)
+
+
+class Phase4ExecutionResponse(BaseModel):
+    proposal_id: str
+    risk_revalidation_audit_id: str
+    execution_status: str
+    venue_order_id: str | None
+    filled_quantity: str
+    average_price: str | None
+    reason: str | None = None
+
+class Phase4ReadinessResponse(BaseModel):
+    ready: bool
+    checks: dict[str, bool]
+    live_trading_enabled: bool
+    detail: str
 
 
 class ApiHealth(BaseModel):
@@ -166,6 +247,31 @@ async def load_candles(asset: str, venue: str, timeframe: str, limit: int) -> li
     return await candle_cache.get_or_load(key, fetch)
 
 
+async def _run_xt_protection_loop(monitor: XTSpotProtectionMonitor) -> None:
+    while True:
+        try:
+            await monitor.run_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("xt_protection_monitor_cycle_failed category=%s", type(exc).__name__)
+        try:
+            interval = max(1, int(os.getenv("MITROS_XT_PROTECTION_POLL_SECONDS", "5")))
+        except ValueError:
+            interval = 5
+        await asyncio.sleep(interval)
+
+
+def _phase4_correlation_group(asset: str) -> str:
+    base = asset.split("/", maxsplit=1)[0].upper()
+    groups = {
+        "BTC": "BTC-beta", "ETH": "ETH-beta", "SOL": "SOL-beta",
+        "BNB": "BNB-beta", "XRP": "XRP-beta", "ADA": "ADA-beta",
+        "DOGE": "DOGE-beta", "LINK": "LINK-beta", "LTC": "LTC-beta",
+    }
+    return groups.get(base, f"{base}-spot")
+
+
 def _statistical_snapshot(candles: list[Candle]) -> StatisticalSnapshot:
     ordered = sorted(candles, key=lambda c: c.open_time)
     returns = [(current.close / previous.close) - Decimal("1") for previous, current in pairwise(ordered)]
@@ -266,6 +372,153 @@ async def build_verified_service() -> VerifiedMarketDataService:
     return VerifiedMarketDataService(
         ingestor, producer_version="0.7.0", persistence=persistence
     )
+
+
+def _load_phase4_policy() -> tuple[RiskPolicy, Decimal]:
+    policy = RiskPolicy(
+        max_risk_per_trade=Decimal(os.environ["MITROS_RISK_MAX_RISK_PER_TRADE"]),
+        max_position_fraction=Decimal(os.environ["MITROS_RISK_MAX_POSITION_FRACTION"]),
+        max_gross_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_GROSS_EXPOSURE_FRACTION"]),
+        max_daily_loss_fraction=Decimal(os.environ["MITROS_RISK_MAX_DAILY_LOSS_FRACTION"]),
+        max_drawdown_fraction=Decimal(os.environ["MITROS_RISK_MAX_DRAWDOWN_FRACTION"]),
+        max_asset_concentration_fraction=Decimal(os.environ["MITROS_RISK_MAX_ASSET_CONCENTRATION_FRACTION"]),
+        max_correlated_positions=int(os.environ["MITROS_RISK_MAX_CORRELATED_POSITIONS"]),
+        max_correlated_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_CORRELATED_EXPOSURE_FRACTION"]),
+        max_open_positions=int(os.environ["MITROS_RISK_MAX_OPEN_POSITIONS"]),
+        min_risk_reward=Decimal(os.environ["MITROS_RISK_MIN_RISK_REWARD"]),
+        max_spread_fraction=Decimal(os.environ["MITROS_RISK_MAX_SPREAD_FRACTION"]),
+        max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
+        min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
+        max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
+        max_market_price_deviation_fraction=Decimal(os.environ["MITROS_RISK_MAX_MARKET_PRICE_DEVIATION_FRACTION"]),
+    )
+    expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
+    if expected_slippage < 0 or expected_slippage > policy.max_slippage_fraction:
+        raise ValueError("expected slippage must be non-negative and within the slippage policy")
+    return policy, expected_slippage
+
+
+async def _evaluate_phase4_intent(
+    payload: Phase4RiskIntent,
+    *,
+    user_id: str,
+    request_id: str | None = None,
+) -> tuple[Phase4RiskEvaluationResponse, RiskEvaluationRequest, RiskPolicy]:
+    database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+    if not database_url:
+        raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
+    try:
+        policy, expected_slippage = _load_phase4_policy()
+    except (KeyError, ValueError) as exc:
+        logger.error("phase4_risk_policy_configuration_invalid")
+        raise HTTPException(status_code=503, detail="Phase 4 risk policy is not completely configured") from exc
+
+    try:
+        xt = build_account_client()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail="Configured account exchange is not supported") from exc
+    try:
+        xt_account = await xt.account_snapshot()
+        btc_usdt_price = await xt.btc_usdt_price()
+        account_scope_id = os.getenv("MITROS_XT_ACCOUNT_SCOPE_ID", "xt.com:primary").strip()
+        if not account_scope_id:
+            raise RuntimeError("XT account scope is not configured")
+        account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
+            user_id=account_scope_id, account=xt_account, btc_usdt_price=btc_usdt_price
+        )
+        batch = await (await build_verified_service()).candles(
+            MarketDataRequest(asset=payload.asset, venue="spot", timeframe="1m", limit=2)
+        )
+        if not batch.candles or any(c.quality is not DataQuality.VERIFIED for c in batch.candles):
+            raise RuntimeError("verified market-data evidence unavailable")
+        latest_candle = max(batch.candles, key=lambda candle: candle.close_time)
+        ticker = await xt.market_ticker(payload.asset)
+        ticker_observed_at = ticker["observed_at"]
+        if not isinstance(ticker_observed_at, datetime):
+            raise XTSpotError("XT ticker has no valid observation timestamp")
+        bid, ask = Decimal(str(ticker["bid"])), Decimal(str(ticker["ask"]))
+        mid = (bid + ask) / Decimal("2")
+        spread_fraction = (ask - bid) / mid
+        entry = payload.entry if payload.entry is not None else Decimal(str(ticker["last"]))
+        request = RiskEvaluationRequest(
+            proposal_id=payload.proposal_id,
+            asset=payload.asset,
+            correlated_group=_phase4_correlation_group(payload.asset),
+            direction=payload.direction,
+            as_of=datetime.now(UTC),
+            quote_observed_at=ticker_observed_at,
+            verified_reference_price=latest_candle.close,
+            current_market_price=Decimal(str(ticker["last"])),
+            account_source="xt.com",
+            account_snapshot_id=account_state["snapshot_id"],
+            account_snapshot_at=account_state["snapshot_at"],
+            market_evidence=(
+                f"verified-candle-provider:{latest_candle.provider}",
+                f"verified-candle-version:{latest_candle.provider_version or 'unknown'}",
+                f"verified-candle-checksum:{batch.batch_checksum}",
+                f"xt-ticker-bid:{bid}",
+                f"xt-ticker-ask:{ask}",
+                f"xt-ticker-last:{ticker['last']}",
+            ),
+            data_verified=True,
+            data_quality=Decimal("1"),
+            equity=account_state["equity"],
+            daily_pnl=account_state["daily_pnl"],
+            peak_equity=account_state["peak_equity"],
+            open_positions=account_state["open_positions"],
+            requested_notional=payload.requested_notional,
+            entry=entry,
+            stop_loss=payload.stop_loss,
+            take_profit=payload.take_profit,
+            spread_fraction=spread_fraction,
+            expected_slippage_fraction=expected_slippage,
+        )
+        decision = IndependentRiskGate(policy).evaluate(request)
+        correlation_id = UUID(request_id) if request_id else uuid4()
+        row = await PostgresPhase4RiskDecisionRepository(database_url).record(
+            user_id=user_id,
+            idempotency_key=payload.idempotency_key,
+            request=request,
+            policy=policy,
+            decision=decision,
+            correlation_id=correlation_id,
+        )
+    except RiskDecisionPersistenceError as exc:
+        logger.error("phase4_risk_audit_unavailable")
+        raise HTTPException(status_code=503, detail="Risk decision audit storage is unavailable") from exc
+    except (XTSpotError, PortfolioSnapshotError, RuntimeError, ValueError) as exc:
+        logger.warning("phase4_risk_evaluation_unavailable category=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="XT account state or verified market-data evidence is unavailable",
+        ) from exc
+    except Exception as exc:
+        logger.error("phase4_risk_evaluation_failed category=%s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Phase 4 risk evaluation is unavailable") from exc
+
+    response = Phase4RiskEvaluationResponse(
+        scope="XT_ACCOUNT",
+        audit_id=str(row["id"]),
+        account_snapshot_id=account_state["snapshot_id"],
+        market_evidence={
+            "provider": latest_candle.provider,
+            "provider_version": latest_candle.provider_version or "unknown",
+            "asset": payload.asset,
+            "venue": latest_candle.venue,
+            "timeframe": latest_candle.timeframe,
+            "latest_verified_close": str(latest_candle.close),
+            "candle_observed_at": latest_candle.observed_at.isoformat(),
+            "candle_received_at": latest_candle.received_at.isoformat(),
+            "batch_checksum": batch.batch_checksum,
+            "xt_bid": str(bid),
+            "xt_ask": str(ask),
+            "xt_last": str(ticker["last"]),
+            "spread_fraction": str(spread_fraction),
+            "quote_observed_at": ticker_observed_at.isoformat(),
+        },
+        decision=decision,
+    )
+    return response, request, policy
 
 
 async def build_intelligence(asset: str, venue: str, timeframe: str) -> IntelligenceSnapshotResponse:
@@ -420,7 +673,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=origins or ["http://localhost:3000"],
         allow_credentials=False,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["Accept", "Authorization", "Content-Type", "X-MITROS-Request-ID"],
     )
 
@@ -537,63 +790,318 @@ def create_app() -> FastAPI:
         except RuntimeError:
             return []
 
-    @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
-    async def risk_assessment(
-        equity: Annotated[Decimal, Query(gt=0)],
-        daily_pnl: Annotated[Decimal, Query()],
-        peak_equity: Annotated[Decimal, Query(gt=0)],
-        requested_size: Annotated[Decimal, Query(gt=0)],
-        stop_distance_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_position_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_gross_exposure: Annotated[Decimal, Query(gt=0)],
-        max_daily_loss_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_drawdown_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_concentration_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_leverage: Annotated[Decimal, Query(gt=0)],
-        max_spread_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_risk_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_correlation_exposure: Annotated[Decimal, Query(gt=0)],
-        asset: Annotated[str, Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$")],
-        existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
-        spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
-        correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
-        *,
-        user: CurrentUser,
-    ) -> RiskAssessment:
-        if peak_equity < equity:
-            raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
-        positions: tuple[PositionState, ...] = ()
-        if existing_exposure > 0:
-            positions = (PositionState(asset=asset, market_value=existing_exposure, unrealized_pnl=Decimal("0"), direction="UNKNOWN"),)
-        portfolio = PortfolioState(
-            equity=equity,
-            balance=equity,
-            daily_pnl=daily_pnl,
-            peak_equity=peak_equity,
-            positions=positions,
+    @app.get("/api/v1/risk/assessment")
+    async def legacy_risk_assessment(user: CurrentUser) -> None:
+        # The former endpoint accepted client-supplied equity and risk limits.
+        # It cannot return an approval; all application risk decisions use Phase 4.
+        raise HTTPException(
+            status_code=410,
+            detail="Legacy risk assessment is retired; use /api/v1/risk/phase4/evaluate",
         )
-        limits = RiskLimits(
-            max_position_fraction=max_position_fraction,
-            max_gross_exposure=max_gross_exposure,
-            max_daily_loss_fraction=max_daily_loss_fraction,
-            max_drawdown_fraction=max_drawdown_fraction,
-            max_concentration_fraction=max_concentration_fraction,
-            max_leverage=max_leverage,
-            max_spread_fraction=max_spread_fraction,
-            max_risk_fraction=max_risk_fraction,
-            max_correlation_exposure=max_correlation_exposure,
-        )
+
+    @app.get("/api/v1/risk/phase4/readiness", response_model=Phase4ReadinessResponse)
+    async def phase4_readiness(user: CurrentUser) -> Phase4ReadinessResponse:
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         try:
-            return AdvancedRiskEngine(limits).assess(
-                portfolio,
-                asset=asset,
-                requested_size=requested_size,
-                stop_distance_fraction=stop_distance_fraction,
-                spread_fraction=spread_fraction,
-                correlated_exposure=correlated_exposure,
+            xt = build_account_client()
+        except ValueError:
+            xt = None
+        try:
+            _load_phase4_policy()
+            policy_configured = True
+        except (KeyError, ValueError):
+            policy_configured = False
+
+        live_enabled = (
+            os.getenv("MITROS_EXECUTION_MODE", "paper").strip().lower() == "live"
+            and os.getenv("MITROS_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
+            and os.getenv("MITROS_LIVE_TRADING_ACK", "").strip() == "I_UNDERSTAND_LIVE_TRADING"
+            and os.getenv("MITROS_XT_LIVE_ORDERS_ENABLED", "false").strip().lower() == "true"
+            and os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() == "true"
+        )
+        checks = {
+            "database_configured": bool(database_url),
+            "risk_policy_configured": policy_configured,
+            "xt_credentials_configured": bool(xt and xt.configured),
+            "live_trading_disabled": not live_enabled,
+            "phase4_schema_applied": False,
+            "xt_read_only_connection": False,
+            "verified_market_data": False,
+        }
+        if database_url:
+            try:
+                async with await psycopg.AsyncConnection.connect(database_url) as connection, connection.cursor() as cursor:
+                        await cursor.execute(
+                            """
+                            select
+                                to_regclass('public.phase4_risk_decisions') is not null,
+                                to_regclass('public.phase4_portfolio_snapshots') is not null,
+                                to_regclass('public.trade_proposals') is not null,
+                                exists (
+                                    select 1 from information_schema.columns
+                                    where table_schema='public' and table_name='trade_proposals'
+                                      and column_name='owner_user_id'
+                                ),
+                                exists (
+                                    select 1 from information_schema.columns
+                                    where table_schema='public' and table_name='trade_proposals'
+                                      and column_name='risk_decision_audit_id'
+                                )
+                            """
+                        )
+                        row = await cursor.fetchone()
+                        checks["phase4_schema_applied"] = bool(row and all(row))
+            except psycopg.Error:
+                checks["phase4_schema_applied"] = False
+        if xt and xt.configured:
+            try:
+                await xt.account_snapshot()
+                await xt.btc_usdt_price()
+                checks["xt_read_only_connection"] = True
+            except XTSpotError:
+                checks["xt_read_only_connection"] = False
+        if database_url:
+            try:
+                batch = await (await build_verified_service()).candles(
+                    MarketDataRequest(asset="BTC/USDT", venue="spot", timeframe="1m", limit=2)
+                )
+                checks["verified_market_data"] = bool(
+                    batch.candles and all(c.quality is DataQuality.VERIFIED for c in batch.candles)
+                )
+            except Exception:
+                checks["verified_market_data"] = False
+        required = (
+            "database_configured", "risk_policy_configured", "xt_credentials_configured",
+            "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
+            "verified_market_data",
+        )
+        ready = all(checks[name] for name in required)
+        return Phase4ReadinessResponse(
+            ready=ready,
+            checks=checks,
+            live_trading_enabled=live_enabled,
+            detail=(
+                "XT account, risk policy, audit schema, and verified market-data checks passed."
+                if ready else
+                "Phase 4 readiness is incomplete; inspect failed checks. Live trading remains environment-controlled."
+            ),
+        )
+
+    @app.post("/api/v1/risk/phase4/evaluate", response_model=Phase4RiskEvaluationResponse)
+    async def phase4_risk_evaluate(
+        payload: Phase4RiskIntent,
+        user: CurrentUser,
+        request_id: str | None = None,
+    ) -> Phase4RiskEvaluationResponse:
+        response, _, _ = await _evaluate_phase4_intent(
+            payload, user_id=user.user_id, request_id=request_id
+        )
+        return response
+
+    @app.post("/api/v1/proposals/phase4", response_model=Phase4ProposalCreateResponse)
+    async def create_phase4_proposal(
+        payload: Phase4ProposalCreatePayload,
+        user: CurrentUser,
+        request_id: str | None = None,
+    ) -> Phase4ProposalCreateResponse:
+        if str(payload.signal.id) != payload.intent.proposal_id:
+            raise HTTPException(status_code=422, detail="Signal and proposal identifiers must match")
+        if payload.signal.asset != payload.intent.asset or payload.signal.direction is not payload.intent.direction:
+            raise HTTPException(status_code=422, detail="Signal and risk intent asset/direction must match")
+        response, risk_request, _ = await _evaluate_phase4_intent(
+            payload.intent, user_id=user.user_id, request_id=request_id
+        )
+        if response.decision.disposition is not RiskDisposition.APPROVED:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Independent Phase 4 risk gate rejected proposal creation",
+                    "audit_id": response.audit_id,
+                    "rejection_reasons": list(response.decision.rejection_reasons),
+                },
             )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            proposal = Phase4TradeProposalBuilder().build(
+                payload.signal,
+                risk_request,
+                response.decision,
+                venue="xt.com",
+                regime=payload.regime,
+                mtf_alignment=payload.mtf_alignment,
+                model_versions=payload.model_versions,
+            )
+            await PostgresPhase4ProposalRepository(
+                os.environ["MITROS_DATABASE_URL"]
+            ).create_approved(
+                user_id=user.user_id,
+                proposal=proposal,
+                request=risk_request,
+                decision=response.decision,
+                audit_id=UUID(response.audit_id),
+            )
+        except (ValueError, Phase4ProposalPersistenceError) as exc:
+            logger.warning("phase4_proposal_creation_blocked category=%s", type(exc).__name__)
+            raise HTTPException(status_code=409, detail="Phase 4 proposal could not be persisted") from exc
+        return Phase4ProposalCreateResponse(
+            audit_id=response.audit_id,
+            account_snapshot_id=response.account_snapshot_id,
+            proposal=proposal,
+        )
+
+    @app.post("/api/v1/proposals/{proposal_id}/approve", response_model=Phase4ApprovalResponse)
+    async def approve_phase4_proposal(
+        proposal_id: UUID,
+        payload: Phase4ApprovalPayload,
+        user: CurrentUser,
+    ) -> Phase4ApprovalResponse:
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
+        repository = PostgresPhase4ProposalRepository(database_url)
+        proposal = await repository.get(user_id=user.user_id, proposal_id=proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        if proposal.approval_status.value != "PENDING":
+            raise HTTPException(status_code=409, detail="Proposal is no longer pending approval")
+        if not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
+            raise HTTPException(status_code=409, detail="Proposal has no Phase 4 risk provenance")
+
+        revalidation_key = f"{payload.idempotency_key[:130]}-revalidation-{uuid4()}"
+        intent = Phase4RiskIntent(
+            proposal_id=str(proposal.id),
+            asset=proposal.asset,
+            direction=proposal.direction,
+            entry=proposal.entry,
+            stop_loss=proposal.stop,
+            take_profit=proposal.target,
+            requested_notional=proposal.position_size,
+            idempotency_key=revalidation_key,
+        )
+        refreshed, _, _ = await _evaluate_phase4_intent(intent, user_id=user.user_id)
+        if (
+            refreshed.decision.disposition is not RiskDisposition.APPROVED
+            or refreshed.decision.approved_notional != proposal.position_size
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Current account state or market evidence no longer passes Phase 4 risk",
+                    "risk_audit_id": refreshed.audit_id,
+                    "rejection_reasons": list(refreshed.decision.rejection_reasons),
+                },
+            )
+        try:
+            outcome = HumanApprovalManager().approve(
+                proposal,
+                actor=user.user_id,
+                reason=payload.reason,
+                idempotency_key=payload.idempotency_key,
+                now=datetime.now(UTC),
+            )
+            token = outcome.approval.approval_token
+            if not token:
+                raise ValueError("approval manager did not issue an approval token")
+            await repository.record_approval(
+                user_id=user.user_id,
+                proposal=proposal,
+                actor=user.user_id,
+                reason=payload.reason,
+                idempotency_key=payload.idempotency_key,
+                token_digest=approval_token_digest(token),
+                decided_at=outcome.approval.decided_at,
+                risk_audit_id=UUID(refreshed.audit_id),
+            )
+        except (ValueError, Phase4ProposalPersistenceError) as exc:
+            logger.warning("phase4_approval_blocked category=%s", type(exc).__name__)
+            raise HTTPException(status_code=409, detail="Human approval could not be recorded") from exc
+        return Phase4ApprovalResponse(
+            proposal_id=str(proposal.id),
+            status="APPROVED",
+            actor=user.user_id,
+            approved_at=outcome.approval.decided_at,
+            risk_revalidation_audit_id=refreshed.audit_id,
+            approval_token=token,
+        )
+
+    @app.post("/api/v1/proposals/{proposal_id}/execute", response_model=Phase4ExecutionResponse)
+    async def execute_phase4_proposal(
+        proposal_id: UUID,
+        payload: Phase4ExecutionPayload,
+        user: CurrentUser,
+    ) -> Phase4ExecutionResponse:
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
+        repository = PostgresPhase4ProposalRepository(database_url)
+        proposal = await repository.get(user_id=user.user_id, proposal_id=proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        if proposal.approval_status.value != "APPROVED":
+            raise HTTPException(status_code=409, detail="Human approval is required before execution")
+        if not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
+            raise HTTPException(status_code=409, detail="Execution requires Phase 4 risk provenance")
+        if datetime.now(UTC) >= proposal.expires_at:
+            raise HTTPException(status_code=409, detail="Proposal has expired; create a new proposal")
+        digest = await repository.approval_digest(user_id=user.user_id, proposal_id=proposal_id)
+        if not digest or not verify_approval_token(payload.approval_token, digest):
+            raise HTTPException(status_code=403, detail="Approval token is invalid")
+        execute_revalidation = Phase4RiskIntent(
+            proposal_id=str(proposal.id),
+            asset=proposal.asset,
+            direction=proposal.direction,
+            entry=proposal.entry,
+            stop_loss=proposal.stop,
+            take_profit=proposal.target,
+            requested_notional=proposal.position_size,
+            idempotency_key=f"execute-revalidation-{proposal.id}-{uuid4()}",
+        )
+        refreshed, _, _ = await _evaluate_phase4_intent(
+            execute_revalidation, user_id=user.user_id
+        )
+        if (
+            refreshed.decision.disposition is not RiskDisposition.APPROVED
+            or refreshed.decision.approved_notional != proposal.position_size
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Execution blocked because fresh Phase 4 risk revalidation failed",
+                    "risk_audit_id": refreshed.audit_id,
+                    "rejection_reasons": list(refreshed.decision.rejection_reasons),
+                },
+            )
+        try:
+            config = ProductionConfig.from_env()
+            gateway = build_venue_gateway(config)
+            if isinstance(gateway, XTSpotExecutionGateway):
+                gateway._require_live_enabled()
+            await repository.reserve_execution(user_id=user.user_id, proposal=proposal)
+        except (ValueError, XTExecutionError, Phase4ProposalPersistenceError) as exc:
+            raise HTTPException(status_code=409, detail="Execution is disabled or intent could not be recorded") from exc
+
+        boundary = ProposalExecutionGateway(gateway, approval_digest=digest)
+        try:
+            result = boundary.submit(proposal, payload.approval_token)
+            await repository.record_execution(user_id=user.user_id, proposal_id=proposal_id, result=result)
+        except Exception as exc:
+            try:
+                await repository.mark_execution_unknown(
+                    user_id=user.user_id, proposal_id=proposal_id,
+                    reason="submission outcome uncertain; reconcile with venue before retry",
+                )
+            except Phase4ProposalPersistenceError:
+                logger.error("phase4_execution_unknown_persistence_failed")
+            logger.error("phase4_execution_requires_reconciliation category=%s", type(exc).__name__)
+            raise HTTPException(status_code=502, detail="Execution outcome uncertain; reconciliation required") from exc
+        return Phase4ExecutionResponse(
+            proposal_id=str(proposal_id),
+            risk_revalidation_audit_id=refreshed.audit_id,
+            execution_status=result.status,
+            venue_order_id=result.venue_order_id,
+            filled_quantity=str(result.filled_quantity),
+            average_price=str(result.average_price) if result.average_price is not None else None,
+            reason=result.reason,
+        )
 
     @app.get("/api/v1/intelligence/snapshot", response_model=IntelligenceSnapshotResponse)
     async def intelligence_snapshot(
@@ -644,6 +1152,27 @@ def create_app() -> FastAPI:
             source_timestamp=artifact.created_at,
         )
         return GroundedResearchCopilot().answer(report.query, (evidence,), generated_at=datetime.now(UTC))
+
+    @app.on_event("startup")
+    async def start_xt_protection_monitor() -> None:
+        if os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() != "true":
+            return
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        if not database_url:
+            logger.error("xt_protection_monitor_not_started reason=database_not_configured")
+            return
+        task = asyncio.create_task(_run_xt_protection_loop(XTSpotProtectionMonitor(database_url)))
+        app.state.xt_protection_task = task
+
+    @app.on_event("shutdown")
+    async def stop_xt_protection_monitor() -> None:
+        task = getattr(app.state, "xt_protection_task", None)
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
     return app
 

@@ -9,6 +9,8 @@ from .interface import (
 from .ledger import ExecutionLedger
 from .mt5 import MT5ExecutionGateway
 from .paper import PaperExecutionGateway
+from .xt import XTSpotExecutionGateway
+from .factory import build_venue_gateway
 from .reconciliation import ExecutionReconciler
 
 __all__ = [
@@ -22,4 +24,6 @@ __all__ = [
     "MT5ExecutionGateway",
     "PaperExecutionGateway",
     "ProposalExecutionGateway",
+    "XTSpotExecutionGateway",
+    "build_venue_gateway",
 ]

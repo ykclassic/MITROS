@@ -30,13 +30,31 @@ class ProposalExecutionGateway:
             raise ValueError("proposal is already executing or terminal")
         if not verify_approval_token(approval_token, self._approval_digest):
             raise ValueError("invalid approval token")
+        if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"} and not proposal.risk.risk_engine_version.startswith("phase4-independent-risk-"):
+            raise ValueError("XT live execution requires a Phase 4 independent risk decision")
+        if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"} and proposal.direction is Direction.SHORT:
+            raise ValueError("XT spot execution does not support opening short positions")
         side = ExecutionSide.BUY if proposal.direction is Direction.LONG else ExecutionSide.SELL
+        quantity = (
+            proposal.position_size / proposal.entry
+            if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"}
+            else proposal.position_size
+        )
         order = ExecutionOrder(
             client_order_id=str(proposal.id),
             venue=proposal.venue,
             asset=proposal.asset,
             side=side,
-            quantity=proposal.position_size,
-            order_type=ExecutionOrderType.MARKET,
+            quantity=quantity,
+            order_type=(
+                ExecutionOrderType.LIMIT
+                if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"}
+                else ExecutionOrderType.MARKET
+            ),
+            limit_price=(
+                proposal.entry
+                if proposal.venue.lower() in {"xt", "xt.com", "xt-spot"}
+                else None
+            ),
         )
         return self._venue_gateway.submit(order, approval_token)
