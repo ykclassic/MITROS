@@ -31,10 +31,10 @@ async def test_xt_account_snapshot_parses_signed_spot_balances() -> None:
                 },
             })
         if request.url.path == "/v4/public/ticker/price":
-            return httpx.Response(200, json={"rc": 0, "result": {"price": "65000"}})
+            return httpx.Response(200, json={"rc": 0, "result": [{"s": "btc_usdt", "p": "65000", "t": 1791652800000}]})
         if request.url.path == "/v4/public/ticker":
             return httpx.Response(200, json={
-                "rc": 0, "result": {"bidPrice": "64999", "askPrice": "65001", "lastPrice": "65000"}
+                "rc": 0, "result": [{"s": "btc_usdt", "bp": "64999", "ap": "65001", "c": "65000", "t": 1791652800000}]
             })
         return httpx.Response(404, json={"rc": 404})
 
