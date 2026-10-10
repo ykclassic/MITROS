@@ -571,63 +571,14 @@ def create_app() -> FastAPI:
         except RuntimeError:
             return []
 
-    @app.get("/api/v1/risk/assessment", response_model=RiskAssessment)
-    async def risk_assessment(
-        equity: Annotated[Decimal, Query(gt=0)],
-        daily_pnl: Annotated[Decimal, Query()],
-        peak_equity: Annotated[Decimal, Query(gt=0)],
-        requested_size: Annotated[Decimal, Query(gt=0)],
-        stop_distance_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_position_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_gross_exposure: Annotated[Decimal, Query(gt=0)],
-        max_daily_loss_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_drawdown_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_concentration_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_leverage: Annotated[Decimal, Query(gt=0)],
-        max_spread_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_risk_fraction: Annotated[Decimal, Query(gt=0, le=1)],
-        max_correlation_exposure: Annotated[Decimal, Query(gt=0)],
-        asset: Annotated[str, Query(pattern=r"^[A-Z0-9]+/[A-Z0-9]+$")],
-        existing_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
-        spread_fraction: Annotated[Decimal, Query(ge=0, le=1)] = Decimal("0"),
-        correlated_exposure: Annotated[Decimal, Query(ge=0)] = Decimal("0"),
-        *,
-        user: CurrentUser,
-    ) -> RiskAssessment:
-        if peak_equity < equity:
-            raise HTTPException(status_code=422, detail="peak_equity must be at least equity")
-        positions: tuple[PositionState, ...] = ()
-        if existing_exposure > 0:
-            positions = (PositionState(asset=asset, market_value=existing_exposure, unrealized_pnl=Decimal("0"), direction="UNKNOWN"),)
-        portfolio = PortfolioState(
-            equity=equity,
-            balance=equity,
-            daily_pnl=daily_pnl,
-            peak_equity=peak_equity,
-            positions=positions,
+    @app.get("/api/v1/risk/assessment")
+    async def legacy_risk_assessment(user: CurrentUser) -> None:
+        # The former endpoint accepted client-supplied equity and risk limits.
+        # It cannot return an approval; all application risk decisions use Phase 4.
+        raise HTTPException(
+            status_code=410,
+            detail="Legacy risk assessment is retired; use /api/v1/risk/phase4/evaluate",
         )
-        limits = RiskLimits(
-            max_position_fraction=max_position_fraction,
-            max_gross_exposure=max_gross_exposure,
-            max_daily_loss_fraction=max_daily_loss_fraction,
-            max_drawdown_fraction=max_drawdown_fraction,
-            max_concentration_fraction=max_concentration_fraction,
-            max_leverage=max_leverage,
-            max_spread_fraction=max_spread_fraction,
-            max_risk_fraction=max_risk_fraction,
-            max_correlation_exposure=max_correlation_exposure,
-        )
-        try:
-            return AdvancedRiskEngine(limits).assess(
-                portfolio,
-                asset=asset,
-                requested_size=requested_size,
-                stop_distance_fraction=stop_distance_fraction,
-                spread_fraction=spread_fraction,
-                correlated_exposure=correlated_exposure,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/v1/risk/phase4/evaluate", response_model=Phase4RiskEvaluationResponse)
     async def phase4_risk_evaluate(
