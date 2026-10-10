@@ -51,9 +51,16 @@ def request_json_diagnostic(
     url: str,
     *,
     headers: dict[str, str] | None = None,
+    method: str = "GET",
+    payload: dict | None = None,
 ) -> tuple[int, object, dict[str, str]]:
     """Return HTTP failures as data so the entire production matrix is reported."""
-    request = urllib.request.Request(url, headers=headers or {})
+    request_headers = dict(headers or {})
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        request_headers.setdefault("Content-Type", "application/json")
+    request = urllib.request.Request(url, data=data, method=method, headers=request_headers)
     try:
         with urllib.request.urlopen(request, timeout=35) as response:
             raw = response.read().decode("utf-8", errors="replace")
@@ -401,3 +408,118 @@ def test_production_web_has_no_browser_execution_or_approval_mutation_routes() -
         except urllib.error.HTTPError as exc:
             status = exc.code
         assert status in (404, 405, 503)
+
+
+
+def test_authenticated_production_phase4_rejection_blocks_approval_and_execution() -> None:
+    """Exercise production account/policy readiness and prove rejected proposals never persist."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    access_token = os.getenv("MITROS_PRODUCTION_ACCESS_TOKEN", "").strip()
+    if not access_token:
+        pytest.fail("MITROS_PRODUCTION_ACCESS_TOKEN is required for Phase 4 production verification")
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    readiness_status, readiness, _ = request_json_diagnostic(
+        f"{API_URL}/api/v1/risk/phase4/readiness", headers=headers
+    )
+    assert readiness_status == 200, (
+        "Phase 4 readiness endpoint failed: "
+        + safe_diagnostic_body(json.dumps(readiness, default=str))
+    )
+    assert isinstance(readiness, dict) and readiness.get("ready") is True, (
+        "Phase 4 readiness checks are incomplete: "
+        + safe_diagnostic_body(json.dumps(readiness, default=str))
+    )
+    assert readiness.get("live_trading_enabled") is False
+    checks = readiness.get("checks", {})
+    assert isinstance(checks, dict)
+    assert all(checks.get(key) is True for key in (
+        "database_configured", "risk_policy_configured", "xt_credentials_configured",
+        "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
+        "verified_market_data",
+    ))
+
+    proposal_id = str(uuid.uuid4())
+    intent = {
+        "proposal_id": proposal_id,
+        "asset": "BTC/USDT",
+        "direction": "LONG",
+        "entry": "100",
+        "stop_loss": "105",
+        "take_profit": "110",
+        "requested_notional": "100",
+        "idempotency_key": "phase4-rejected-" + uuid.uuid4().hex,
+    }
+    status, evaluated, _ = request_json_diagnostic(
+        f"{API_URL}/api/v1/risk/phase4/evaluate",
+        method="POST", headers=headers, payload=intent,
+    )
+    assert status == 200, (
+        "Phase 4 risk evaluation failed: "
+        + safe_diagnostic_body(json.dumps(evaluated, default=str))
+    )
+    assert isinstance(evaluated, dict)
+    decision = evaluated.get("decision", {})
+    assert decision.get("disposition") == "REJECTED"
+    assert float(decision.get("approved_notional", "1")) == 0
+    assert evaluated.get("audit_id")
+
+    now = datetime.now(timezone.utc)
+    signal = {
+        "id": proposal_id,
+        "asset": "BTC/USDT",
+        "venue": "spot",
+        "direction": "LONG",
+        "created_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=15)).isoformat(),
+        "strategy_votes": [{
+            "strategy_id": "phase4-production-guard-test",
+            "strategy_version": "1.0.0",
+            "direction": "LONG",
+            "confidence": "0.99",
+        }],
+        "confidence": "0.99",
+    }
+    create_payload = {
+        "intent": {**intent, "idempotency_key": "phase4-proposal-" + uuid.uuid4().hex},
+        "signal": signal,
+        "regime": "PRODUCTION_GUARD_TEST",
+        "mtf_alignment": "1",
+        "model_versions": ["phase4-production-guard-test"],
+    }
+    status, rejected_proposal, _ = request_json_diagnostic(
+        f"{API_URL}/api/v1/proposals/phase4",
+        method="POST", headers=headers, payload=create_payload,
+    )
+    assert status == 409, (
+        "Rejected proposal unexpectedly advanced past the independent risk gate: "
+        + safe_diagnostic_body(json.dumps(rejected_proposal, default=str))
+    )
+    assert isinstance(rejected_proposal, dict)
+    detail = rejected_proposal.get("detail", {})
+    assert detail.get("audit_id")
+    assert "rejection_reasons" in detail
+
+    status, approval_response, _ = request_json_diagnostic(
+        f"{API_URL}/api/v1/proposals/{proposal_id}/approve",
+        method="POST",
+        headers=headers,
+        payload={"reason": "negative-path safety verification", "idempotency_key": "phase4-approve-" + uuid.uuid4().hex},
+    )
+    assert status == 404, (
+        "Rejected proposal was reachable by human approval: "
+        + safe_diagnostic_body(json.dumps(approval_response, default=str))
+    )
+
+    status, execution_response, _ = request_json_diagnostic(
+        f"{API_URL}/api/v1/proposals/{proposal_id}/execute",
+        method="POST",
+        headers=headers,
+        payload={"approval_token": "invalid-phase4-negative-test-token"},
+    )
+    assert status == 404, (
+        "Rejected proposal was reachable by execution: "
+        + safe_diagnostic_body(json.dumps(execution_response, default=str))
+    )
