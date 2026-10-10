@@ -617,7 +617,14 @@ def create_app() -> FastAPI:
     ) -> Phase4RiskEvaluationResponse:
         # Caller-supplied portfolio state is never accepted as live account state.
         # Keep the route unavailable in live mode until an authoritative account adapter exists.
-        if os.getenv("MITROS_EXECUTION_MODE", "paper").strip().lower() == "live":
+        try:
+            execution_config = ProductionConfig.from_env()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="Execution configuration is invalid; Phase 4 evaluation is disabled",
+            ) from exc
+        if execution_config.execution_mode.value == "live" or execution_config.live_trading_enabled:
             raise HTTPException(
                 status_code=503,
                 detail="Phase 4 evaluation is disabled in live mode until authoritative account-state integration is configured",
