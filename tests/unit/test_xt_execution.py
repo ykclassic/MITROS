@@ -57,7 +57,7 @@ def test_xt_limit_order_submission_and_reconciliation(monkeypatch) -> None:
         calls.append(request)
         if request.method == "POST":
             body = request.read().decode()
-            assert '"timeInForce":"GTC"' in body
+            assert '"timeInForce":"IOC"' in body
             assert '"clientOrderId":"mitros_' in body
             assert request.headers.get("validate-signature")
             return httpx.Response(200, json={"rc": 0, "result": {"orderId": "xt-order-123"}})
