@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+from hashlib import sha256
 import time
 from decimal import Decimal
 from typing import Any
@@ -116,17 +117,19 @@ class XTSpotExecutionGateway(ExecutionGateway):
             raise XTExecutionError("XT execution gateway received an unsupported venue")
         if order.quantity <= 0:
             raise XTExecutionError("order quantity must be positive")
+        if order.order_type.value != "LIMIT" or order.limit_price is None:
+            raise XTExecutionError("XT spot execution requires a limit order at the approved entry price")
+        venue_client_id = _xt_client_order_id(order.client_order_id)
         body: dict[str, Any] = {
             "symbol": order.asset.replace("/", "_").lower(),
             "side": order.side.value,
             "bizType": "SPOT",
             "quantity": str(order.quantity),
-            "type": order.order_type.value,
-            "clientOrderId": order.client_order_id,
+            "price": str(order.limit_price),
+            "type": "LIMIT",
+            "timeInForce": "GTC",
+            "clientOrderId": venue_client_id,
         }
-        if order.limit_price is not None:
-            body["price"] = str(order.limit_price)
-            body["timeInForce"] = "GTC"
         result = self._request("POST", "/v4/order", body=body)
         venue_id = result.get("orderId", result.get("id"))
         if venue_id is None:
@@ -156,7 +159,7 @@ class XTSpotExecutionGateway(ExecutionGateway):
         self._require_live_enabled()
         venue_id = self._venue_ids.get(client_order_id)
         path = f"/v4/order/{venue_id}" if venue_id else "/v4/order"
-        params = None if venue_id else {"clientOrderId": client_order_id}
+        params = None if venue_id else {"clientOrderId": _xt_client_order_id(client_order_id)}
         result = self._request("GET", path, params=params)
         resolved_id = result.get("orderId", result.get("id", venue_id))
         if resolved_id is None:
@@ -183,3 +186,9 @@ def _normalize_status(value: str) -> str:
         "REJECTED": "REJECTED", "FAILED": "REJECTED", "UNKNOWN": "UNKNOWN",
     }
     return mapping.get(normalized, "UNKNOWN")
+
+
+
+def _xt_client_order_id(client_order_id: str) -> str:
+    """XT clientOrderId accepts 4-22 alphanumeric/underscore characters."""
+    return "mitros_" + sha256(client_order_id.encode("utf-8")).hexdigest()[:14]
