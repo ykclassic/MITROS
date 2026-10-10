@@ -33,7 +33,7 @@ A failed hard check returns `REJECTED`, `approved_notional=0`, and explicit reas
 
 ## XT spot execution limitation for this build
 
-The XT adapter submits approved entry limit orders and reconciles XT order state. XT's documented spot `/v4/order` interface supports `LIMIT` and `MARKET` entries, not a native bracket order carrying both stop-loss and take-profit triggers. A software protective-order monitor/close workflow is not yet integrated. Therefore the XT live-order flags remain false; do not enable live orders until that protective-order lifecycle is implemented and verified. This is an outstanding feature integration item, not a distribution-audit requirement.
+The XT adapter submits approved IOC limit entries and reconciles XT order state. Because the XT spot order interface does not provide a single native bracket order for both stop-loss and take-profit, MITROS runs a database-backed protective monitor in the API process. It watches filled XT spot longs and submits one idempotent market sell when stop-loss or take-profit is crossed. It claims the exit state before submission and reconciles uncertain outcomes rather than blindly retrying. XT spot short entries are rejected because spot trading cannot open a short position. The monitor requires `MITROS_XT_PROTECTION_MONITOR_ENABLED=true`; all live flags remain false by default. The full pre-distribution audit must still test monitor uptime/restarts, partial fills, exchange rate limits, and close-order reconciliation.
 
 ## Live execution configuration
 
@@ -44,10 +44,12 @@ Required controls:
 - `MITROS_LIVE_TRADING_ENABLED=false`
 - `MITROS_LIVE_TRADING_ACK=` (empty in paper mode)
 - `MITROS_XT_LIVE_ORDERS_ENABLED=false`
+- `MITROS_XT_PROTECTION_MONITOR_ENABLED=false`
+- `MITROS_XT_PROTECTION_POLL_SECONDS=5`
 
 XT account access uses server-only `MITROS_XT_API_KEY` and `MITROS_XT_API_SECRET`. Use least-privilege keys; never enable withdrawals. The API key/secret must be configured in Render secrets, never in GitHub, browser code, or `.env.example`.
 
-To switch modes later, set `MITROS_EXECUTION_MODE=live`, `MITROS_LIVE_TRADING_ENABLED=true`, `MITROS_LIVE_TRADING_ACK=I_UNDERSTAND_LIVE_TRADING`, and `MITROS_XT_LIVE_ORDERS_ENABLED=true` in the backend environment. These flags are intentionally separate; changing any one flag alone does not enable live orders. Do not enable them until XT account, market evidence, database migrations, approval revalidation, order reconciliation, and the full pre-distribution audit are complete.
+To switch modes later, set `MITROS_EXECUTION_MODE=live`, `MITROS_LIVE_TRADING_ENABLED=true`, `MITROS_LIVE_TRADING_ACK=I_UNDERSTAND_LIVE_TRADING`, `MITROS_XT_LIVE_ORDERS_ENABLED=true`, and `MITROS_XT_PROTECTION_MONITOR_ENABLED=true` in the backend environment. These flags are intentionally separate; changing any one flag alone does not enable live orders. Do not enable them until XT account, market evidence, database migrations, approval revalidation, order reconciliation, and the full pre-distribution audit are complete.
 
 ## Configuration
 
