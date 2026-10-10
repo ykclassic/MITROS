@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import psycopg
 
 from contracts.consensus import MTFConsensus, StrategyConsensus
 from contracts.intelligence import (
@@ -133,6 +134,12 @@ class Phase4ExecutionResponse(BaseModel):
     filled_quantity: str
     average_price: str | None
     reason: str | None = None
+
+class Phase4ReadinessResponse(BaseModel):
+    ready: bool
+    checks: dict[str, bool]
+    live_trading_enabled: bool
+    detail: str
 
 
 class ApiHealth(BaseModel):
@@ -350,6 +357,29 @@ async def build_verified_service() -> VerifiedMarketDataService:
     )
 
 
+def _load_phase4_policy() -> tuple[RiskPolicy, Decimal]:
+    policy = RiskPolicy(
+        max_risk_per_trade=Decimal(os.environ["MITROS_RISK_MAX_RISK_PER_TRADE"]),
+        max_position_fraction=Decimal(os.environ["MITROS_RISK_MAX_POSITION_FRACTION"]),
+        max_gross_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_GROSS_EXPOSURE_FRACTION"]),
+        max_daily_loss_fraction=Decimal(os.environ["MITROS_RISK_MAX_DAILY_LOSS_FRACTION"]),
+        max_drawdown_fraction=Decimal(os.environ["MITROS_RISK_MAX_DRAWDOWN_FRACTION"]),
+        max_asset_concentration_fraction=Decimal(os.environ["MITROS_RISK_MAX_ASSET_CONCENTRATION_FRACTION"]),
+        max_correlated_positions=int(os.environ["MITROS_RISK_MAX_CORRELATED_POSITIONS"]),
+        max_correlated_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_CORRELATED_EXPOSURE_FRACTION"]),
+        max_open_positions=int(os.environ["MITROS_RISK_MAX_OPEN_POSITIONS"]),
+        min_risk_reward=Decimal(os.environ["MITROS_RISK_MIN_RISK_REWARD"]),
+        max_spread_fraction=Decimal(os.environ["MITROS_RISK_MAX_SPREAD_FRACTION"]),
+        max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
+        min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
+        max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
+    )
+    expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
+    if expected_slippage < 0:
+        raise ValueError("expected slippage must be non-negative")
+    return policy, expected_slippage
+
+
 async def _evaluate_phase4_intent(
     payload: Phase4RiskIntent,
     *,
@@ -360,23 +390,7 @@ async def _evaluate_phase4_intent(
     if not database_url:
         raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
     try:
-        policy = RiskPolicy(
-            max_risk_per_trade=Decimal(os.environ["MITROS_RISK_MAX_RISK_PER_TRADE"]),
-            max_position_fraction=Decimal(os.environ["MITROS_RISK_MAX_POSITION_FRACTION"]),
-            max_gross_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_GROSS_EXPOSURE_FRACTION"]),
-            max_daily_loss_fraction=Decimal(os.environ["MITROS_RISK_MAX_DAILY_LOSS_FRACTION"]),
-            max_drawdown_fraction=Decimal(os.environ["MITROS_RISK_MAX_DRAWDOWN_FRACTION"]),
-            max_asset_concentration_fraction=Decimal(os.environ["MITROS_RISK_MAX_ASSET_CONCENTRATION_FRACTION"]),
-            max_correlated_positions=int(os.environ["MITROS_RISK_MAX_CORRELATED_POSITIONS"]),
-            max_correlated_exposure_fraction=Decimal(os.environ["MITROS_RISK_MAX_CORRELATED_EXPOSURE_FRACTION"]),
-            max_open_positions=int(os.environ["MITROS_RISK_MAX_OPEN_POSITIONS"]),
-            min_risk_reward=Decimal(os.environ["MITROS_RISK_MIN_RISK_REWARD"]),
-            max_spread_fraction=Decimal(os.environ["MITROS_RISK_MAX_SPREAD_FRACTION"]),
-            max_slippage_fraction=Decimal(os.environ["MITROS_RISK_MAX_SLIPPAGE_FRACTION"]),
-            min_data_quality=Decimal(os.environ["MITROS_RISK_MIN_DATA_QUALITY"]),
-            max_quote_age_seconds=int(os.environ["MITROS_RISK_MAX_QUOTE_AGE_SECONDS"]),
-        )
-        expected_slippage = Decimal(os.environ["MITROS_RISK_EXPECTED_SLIPPAGE_FRACTION"])
+        policy, expected_slippage = _load_phase4_policy()
     except (KeyError, ValueError) as exc:
         logger.error("phase4_risk_policy_configuration_invalid")
         raise HTTPException(status_code=503, detail="Phase 4 risk policy is not completely configured") from exc
@@ -760,6 +774,80 @@ def create_app() -> FastAPI:
         raise HTTPException(
             status_code=410,
             detail="Legacy risk assessment is retired; use /api/v1/risk/phase4/evaluate",
+        )
+
+    @app.get("/api/v1/risk/phase4/readiness", response_model=Phase4ReadinessResponse)
+    async def phase4_readiness(user: CurrentUser) -> Phase4ReadinessResponse:
+        database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        xt = XTSpotClient()
+        try:
+            _load_phase4_policy()
+            policy_configured = True
+        except (KeyError, ValueError):
+            policy_configured = False
+
+        live_enabled = (
+            os.getenv("MITROS_EXECUTION_MODE", "paper").strip().lower() == "live"
+            and os.getenv("MITROS_LIVE_TRADING_ENABLED", "false").strip().lower() == "true"
+            and os.getenv("MITROS_LIVE_TRADING_ACK", "").strip() == "I_UNDERSTAND_LIVE_TRADING"
+            and os.getenv("MITROS_XT_LIVE_ORDERS_ENABLED", "false").strip().lower() == "true"
+        )
+        checks = {
+            "database_configured": bool(database_url),
+            "risk_policy_configured": policy_configured,
+            "xt_credentials_configured": xt.configured,
+            "live_trading_disabled": not live_enabled,
+            "phase4_schema_applied": False,
+            "xt_read_only_connection": False,
+            "verified_market_data": False,
+        }
+        if database_url:
+            try:
+                async with await psycopg.AsyncConnection.connect(database_url) as connection:
+                    async with connection.cursor() as cursor:
+                        await cursor.execute(
+                            """
+                            select
+                                to_regclass('public.phase4_risk_decisions') is not null,
+                                to_regclass('public.phase4_portfolio_snapshots') is not null,
+                                to_regclass('public.trade_proposals') is not null
+                            """
+                        )
+                        row = await cursor.fetchone()
+                        checks["phase4_schema_applied"] = bool(row and all(row))
+            except psycopg.Error:
+                checks["phase4_schema_applied"] = False
+        if xt.configured:
+            try:
+                await xt.account_snapshot()
+                await xt.btc_usdt_price()
+                checks["xt_read_only_connection"] = True
+            except XTSpotError:
+                checks["xt_read_only_connection"] = False
+        if database_url:
+            try:
+                batch = await (await build_verified_service()).candles(
+                    MarketDataRequest(asset="BTC/USDT", venue="spot", timeframe="1m", limit=2)
+                )
+                checks["verified_market_data"] = bool(
+                    batch.candles and all(c.quality is DataQuality.VERIFIED for c in batch.candles)
+                )
+            except Exception:
+                checks["verified_market_data"] = False
+        required = (
+            "database_configured", "risk_policy_configured", "xt_credentials_configured",
+            "phase4_schema_applied", "xt_read_only_connection", "verified_market_data",
+        )
+        ready = all(checks[name] for name in required)
+        return Phase4ReadinessResponse(
+            ready=ready,
+            checks=checks,
+            live_trading_enabled=live_enabled,
+            detail=(
+                "XT account, risk policy, audit schema, and verified market-data checks passed."
+                if ready else
+                "Phase 4 readiness is incomplete; inspect failed checks. Live trading remains environment-controlled."
+            ),
         )
 
     @app.post("/api/v1/risk/phase4/evaluate", response_model=Phase4RiskEvaluationResponse)
