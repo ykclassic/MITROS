@@ -32,6 +32,7 @@ class RiskPolicy(BaseModel):
     max_slippage_fraction: Decimal = Field(ge=0, lt=1)
     min_data_quality: Decimal = Field(ge=0, le=1)
     max_quote_age_seconds: int = Field(gt=0)
+    max_market_price_deviation_fraction: Decimal = Field(default=Decimal("0.01"), ge=0, lt=1)
 
 class RiskEvaluationRequest(BaseModel):
     """Timestamped proposal and portfolio snapshot; not an execution command."""
@@ -42,6 +43,8 @@ class RiskEvaluationRequest(BaseModel):
     direction: Direction
     as_of: datetime
     quote_observed_at: datetime
+    verified_reference_price: Decimal = Field(gt=0)
+    current_market_price: Decimal = Field(gt=0)
     account_source: str = "xt.com"
     account_snapshot_id: str | None = None
     account_snapshot_at: datetime | None = None
