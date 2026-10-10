@@ -66,6 +66,7 @@ jobs:
       - run: test -s supabase/migrations/20261010174748_0011_phase4_xt_portfolio_snapshots.sql
       - run: test -s supabase/migrations/20261010174751_0012_phase4_proposal_lifecycle.sql
       - run: test -s supabase/migrations/20261010200000_0013_phase4_xt_protection_monitor.sql
+      - run: test -s supabase/migrations/20261010210000_0014_phase4_usdt_one_minute_market_data.sql
   configuration:
     runs-on: ubuntu-latest
     steps:
