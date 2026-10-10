@@ -23,6 +23,7 @@ A failed hard check returns `REJECTED`, `approved_notional=0`, and explicit reas
 
 ## API lifecycle
 
+- `GET /api/v1/risk/phase4/readiness` — reports whether risk policy, XT credentials/read-only access, Phase 4 schema, verified market data, and live-off toggles are configured; it never returns credentials or account values.
 - `POST /api/v1/risk/phase4/evaluate` — evaluates a trade intent against fresh XT account state and verified market evidence; returns risk evidence and audit IDs.
 - `POST /api/v1/proposals/phase4` — creates a durable proposal only after an approved Phase 4 decision. Rejected decisions remain in the risk audit and cannot create a proposal.
 - `POST /api/v1/proposals/{proposal_id}/approve` — refreshes account state and market evidence, reruns the risk policy, verifies the requested size still passes, then records human approval. It returns a one-time approval token; only the token digest is persisted.
