@@ -223,7 +223,6 @@ def test_approved_proposal_revalidates_risk_before_issuing_human_approval(monkey
 
 
 def test_rejected_phase4_decision_never_persists_a_trade_proposal(monkeypatch) -> None:
-    from decimal import Decimal
     from packages.api import app as api_module
     from contracts.phase4_risk import RiskDisposition
     from packages.risk.phase4 import IndependentRiskGate
