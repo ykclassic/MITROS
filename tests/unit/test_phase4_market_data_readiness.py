@@ -12,10 +12,11 @@ def test_phase4_usdt_symbols_are_explicit_for_all_assets() -> None:
         "SOL/USDT": ("SOLUSDT", "SOL-USDT"),
     }
     for canonical_asset, (kraken_symbol, coinbase_symbol) in expected.items():
+        usd_asset = canonical_asset.replace("/USDT", "/USD")
         assert DEFAULT_SYMBOL_MAPPINGS["kraken"][canonical_asset] == kraken_symbol
         assert DEFAULT_SYMBOL_MAPPINGS["coinbase"][canonical_asset] == coinbase_symbol
-        assert kraken_symbol != canonical_asset.replace("/", "")
-        assert coinbase_symbol != canonical_asset.replace("/", "")
+        assert kraken_symbol != DEFAULT_SYMBOL_MAPPINGS["kraken"][usd_asset]
+        assert coinbase_symbol != DEFAULT_SYMBOL_MAPPINGS["coinbase"][usd_asset]
 
 
 def test_phase4_risk_gate_timeframe_is_supported_by_primary_and_cross_validator() -> None:
