@@ -28,7 +28,9 @@ DEFAULT_SYMBOL_MAPPINGS: dict[str, dict[str, str]] = {
         "BTC/USD": "BTC/USD",
         "BTC/USDT": "XBTUSDT",
         "ETH/USD": "ETH/USD",
+        "ETH/USDT": "ETHUSDT",
         "SOL/USD": "SOL/USD",
+        "SOL/USDT": "SOLUSDT",
     },
     "coingecko": {
         "BTC/USD": "bitcoin",
