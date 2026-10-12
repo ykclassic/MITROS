@@ -71,6 +71,11 @@ def test_readiness_diagnostics_are_sanitized_and_do_not_change_readiness() -> No
     assert diagnostics["xt_read_only_connection"] == "ok"
     assert not phase4_readiness_is_ready(checks)
 
+    # Even if diagnostics look healthy, enabling live trading still blocks readiness.
+    checks["xt_read_only_connection"] = True
+    checks["live_trading_disabled"] = False
+    assert not phase4_readiness_is_ready(checks)
+
 
 def test_diagnostic_codes_do_not_contain_secret_bearing_exception_text() -> None:
     import httpx
