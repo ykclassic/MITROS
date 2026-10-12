@@ -876,7 +876,8 @@ def create_app() -> FastAPI:
                 await xt.btc_usdt_price()
                 checks["xt_read_only_connection"] = True
                 diagnostics["xt_read_only_connection"] = "ok"
-            except XTSpotError as exc:
+            except Exception as exc:
+                # Emit only an allowlisted reason code; never serialize exception text.
                 checks["xt_read_only_connection"] = False
                 diagnostics["xt_read_only_connection"] = xt_failure_reason(exc)
         if database_url:
