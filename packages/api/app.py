@@ -140,6 +140,7 @@ class Phase4ExecutionResponse(BaseModel):
 class Phase4ReadinessResponse(BaseModel):
     ready: bool
     checks: dict[str, bool]
+    diagnostics: dict[str, str] = Field(default_factory=dict)
     live_trading_enabled: bool
     detail: str
 
@@ -828,6 +829,16 @@ def create_app() -> FastAPI:
             "xt_read_only_connection": False,
             "verified_market_data": False,
         }
+        # Diagnostics are stable, allowlisted reason codes only. Never include
+        # provider exception text, credentials, signatures, or request headers.
+        diagnostics = {
+            "xt_read_only_connection": (
+                "not_configured" if not (xt and xt.configured) else "not_checked"
+            ),
+            "verified_market_data": (
+                "database_not_configured" if not database_url else "not_checked"
+            ),
+        }
         if database_url:
             try:
                 async with await psycopg.AsyncConnection.connect(database_url) as connection, connection.cursor() as cursor:
@@ -856,10 +867,32 @@ def create_app() -> FastAPI:
         if xt and xt.configured:
             try:
                 await xt.account_snapshot()
-                await xt.btc_usdt_price()
-                checks["xt_read_only_connection"] = True
             except XTSpotError:
                 checks["xt_read_only_connection"] = False
+                diagnostics["xt_read_only_connection"] = "account_snapshot_failed"
+                logger.warning(
+                    "phase4_readiness_check_failed",
+                    extra={
+                        "check": "xt_read_only_connection",
+                        "reason_code": "account_snapshot_failed",
+                    },
+                )
+            else:
+                try:
+                    await xt.btc_usdt_price()
+                except XTSpotError:
+                    checks["xt_read_only_connection"] = False
+                    diagnostics["xt_read_only_connection"] = "price_check_failed"
+                    logger.warning(
+                        "phase4_readiness_check_failed",
+                        extra={
+                            "check": "xt_read_only_connection",
+                            "reason_code": "price_check_failed",
+                        },
+                    )
+                else:
+                    checks["xt_read_only_connection"] = True
+                    diagnostics["xt_read_only_connection"] = "passed"
         if database_url:
             try:
                 batch = await (await build_verified_service()).candles(
@@ -868,8 +901,26 @@ def create_app() -> FastAPI:
                 checks["verified_market_data"] = bool(
                     batch.candles and all(c.quality is DataQuality.VERIFIED for c in batch.candles)
                 )
-            except Exception:
+                if not batch.candles:
+                    diagnostics["verified_market_data"] = "verified_candles_missing"
+                elif not checks["verified_market_data"]:
+                    diagnostics["verified_market_data"] = "candles_not_verified"
+                else:
+                    diagnostics["verified_market_data"] = "passed"
+            except Exception as exc:
                 checks["verified_market_data"] = False
+                reason_code = _market_data_failure_category(exc)
+                diagnostics["verified_market_data"] = reason_code
+                logger.warning(
+                    "phase4_readiness_check_failed",
+                    extra={
+                        "check": "verified_market_data",
+                        "reason_code": reason_code,
+                        "asset": "BTC/USDT",
+                        "venue": "spot",
+                        "timeframe": "1m",
+                    },
+                )
         required = (
             "database_configured", "risk_policy_configured", "xt_credentials_configured",
             "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
@@ -879,6 +930,7 @@ def create_app() -> FastAPI:
         return Phase4ReadinessResponse(
             ready=ready,
             checks=checks,
+            diagnostics=diagnostics,
             live_trading_enabled=live_enabled,
             detail=(
                 "XT account, risk policy, audit schema, and verified market-data checks passed."
