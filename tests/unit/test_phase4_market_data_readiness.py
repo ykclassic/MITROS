@@ -29,3 +29,63 @@ def test_auth_diagnostics_map_jwt_failures_to_safe_reason_codes() -> None:
     assert _jwt_failure_reason(jwt.InvalidAudienceError()) == "audience_mismatch"
     assert _jwt_failure_reason(jwt.InvalidIssuerError()) == "issuer_mismatch"
     assert _jwt_failure_reason(jwt.InvalidSignatureError()) == "signature_invalid"
+
+
+def test_readiness_diagnostics_are_sanitized_and_do_not_change_readiness() -> None:
+    from packages.operations.readiness_diagnostics import (
+        market_data_failure_reason,
+        phase4_readiness_is_ready,
+        xt_failure_reason,
+    )
+    from packages.exchanges.xt import XTSpotError
+
+    secret_bearing_xt_error = XTSpotError(
+        "Authorization: Bearer do-not-log signature=secret-value"
+    )
+    secret_bearing_market_error = RuntimeError(
+        "https://provider.invalid?apikey=top-secret"
+    )
+    xt_reason = xt_failure_reason(secret_bearing_xt_error)
+    market_reason = market_data_failure_reason(secret_bearing_market_error)
+
+    assert xt_reason == "xt_api_error"
+    assert market_reason == "market_data_provider_unavailable"
+    for reason in (xt_reason, market_reason):
+        assert "secret" not in reason
+        assert "Bearer" not in reason
+        assert "apikey" not in reason
+
+    checks = {
+        "database_configured": True,
+        "risk_policy_configured": True,
+        "xt_credentials_configured": True,
+        "live_trading_disabled": True,
+        "phase4_schema_applied": True,
+        "xt_read_only_connection": False,
+        "verified_market_data": True,
+    }
+    assert not phase4_readiness_is_ready(checks)
+    # A successful-looking diagnostic is never authority to override a failed check.
+    checks["xt_read_only_connection"] = False
+    diagnostics = {"xt_read_only_connection": "ok", "verified_market_data": "ok"}
+    assert diagnostics["xt_read_only_connection"] == "ok"
+    assert not phase4_readiness_is_ready(checks)
+
+
+def test_diagnostic_codes_do_not_contain_secret_bearing_exception_text() -> None:
+    import httpx
+    from packages.operations.readiness_diagnostics import (
+        market_data_failure_reason,
+        xt_failure_reason,
+    )
+    from packages.exchanges.xt import XTSpotError
+
+    cases = [
+        (XTSpotError("api_secret=abc authorization=Bearer xyz"), xt_failure_reason, "xt_api_error"),
+        (RuntimeError("private key signature=abc"), market_data_failure_reason, "market_data_provider_unavailable"),
+        (httpx.TimeoutException("token=abc"), market_data_failure_reason, "market_data_provider_timeout"),
+    ]
+    for exception, classify, expected in cases:
+        reason = classify(exception)
+        assert reason == expected
+        assert all(fragment not in reason for fragment in ("abc", "xyz", "Bearer", "signature", "token"))
