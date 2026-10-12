@@ -52,6 +52,11 @@ from packages.market_data.providers import CoinbaseProvider, CoinGeckoProvider, 
 from packages.market_data.router import ProviderRouter
 from packages.market_data.symbols import SymbolMapper
 from packages.operations.config import ProductionConfig
+from packages.operations.readiness_diagnostics import (
+    market_data_failure_reason,
+    phase4_readiness_is_ready,
+    xt_failure_reason,
+)
 from packages.research.copilot import GroundedResearchCopilot
 from packages.research.platform import ResearchPlatform
 from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvaluationRequest, RiskPolicy
@@ -140,6 +145,7 @@ class Phase4ExecutionResponse(BaseModel):
 class Phase4ReadinessResponse(BaseModel):
     ready: bool
     checks: dict[str, bool]
+    diagnostics: dict[str, str]
     live_trading_enabled: bool
     detail: str
 
@@ -829,6 +835,16 @@ def create_app() -> FastAPI:
             "xt_read_only_connection": False,
             "verified_market_data": False,
         }
+        diagnostics = {
+            "xt_read_only_connection": (
+                "not_checked_credentials_missing" if not (xt and xt.configured)
+                else "not_checked"
+            ),
+            "verified_market_data": (
+                "not_checked_database_unconfigured" if not database_url
+                else "not_checked"
+            ),
+        }
         if database_url:
             try:
                 async with await psycopg.AsyncConnection.connect(database_url) as connection, connection.cursor() as cursor:
@@ -859,8 +875,11 @@ def create_app() -> FastAPI:
                 await xt.account_snapshot()
                 await xt.btc_usdt_price()
                 checks["xt_read_only_connection"] = True
-            except XTSpotError:
+                diagnostics["xt_read_only_connection"] = "ok"
+            except Exception as exc:
+                # Emit only an allowlisted reason code; never serialize exception text.
                 checks["xt_read_only_connection"] = False
+                diagnostics["xt_read_only_connection"] = xt_failure_reason(exc)
         if database_url:
             try:
                 batch = await (await build_verified_service()).candles(
@@ -869,17 +888,17 @@ def create_app() -> FastAPI:
                 checks["verified_market_data"] = bool(
                     batch.candles and all(c.quality is DataQuality.VERIFIED for c in batch.candles)
                 )
-            except Exception:
+                diagnostics["verified_market_data"] = (
+                    "ok" if checks["verified_market_data"] else "market_data_not_verified"
+                )
+            except Exception as exc:
                 checks["verified_market_data"] = False
-        required = (
-            "database_configured", "risk_policy_configured", "xt_credentials_configured",
-            "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
-            "verified_market_data",
-        )
-        ready = all(checks[name] for name in required)
+                diagnostics["verified_market_data"] = market_data_failure_reason(exc)
+        ready = phase4_readiness_is_ready(checks)
         return Phase4ReadinessResponse(
             ready=ready,
             checks=checks,
+            diagnostics=diagnostics,
             live_trading_enabled=live_enabled,
             detail=(
                 "XT account, risk policy, audit schema, and verified market-data checks passed."
