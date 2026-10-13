@@ -123,8 +123,8 @@ class PostgresAccountPortfolioRepository:
             "open_positions": open_positions,
             "positions": positions,
             "balances": balances_json,
-            "source": "xt.com:spot/v4/balances",
-            "valuation_source": "xt.com:BTC/USDT",
+            "source": f"{account.provider}:{account.account_type}/balances",
+            "valuation_source": f"{account.provider}:BTC/USDT",
         }
 
 
