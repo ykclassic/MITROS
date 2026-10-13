@@ -484,3 +484,25 @@ def test_phase4_readiness_uses_simulated_provider_without_xt_credentials(monkeyp
     assert payload["checks"]["live_trading_disabled"] is True
     assert payload["live_trading_enabled"] is False
     assert payload["ready"] is False
+
+
+@pytest.mark.parametrize("provider", ["simulated", "bybit"])
+def test_non_xt_account_provider_cannot_issue_approval_or_execute(monkeypatch, provider) -> None:
+    monkeypatch.setenv("MITROS_ACCOUNT_EXCHANGE", provider)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        client = TestClient(app)
+        approval = client.post(
+            "/api/v1/proposals/00000000-0000-0000-0000-000000000123/approve",
+            json={"reason": "verification", "idempotency_key": "nonxt-approval-key"},
+        )
+        execution = client.post(
+            "/api/v1/proposals/00000000-0000-0000-0000-000000000123/execute",
+            json={"approval_token": "not-a-valid-token"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert approval.status_code == 409
+    assert "disabled" in approval.json()["detail"]
+    assert execution.status_code == 409
+    assert "disabled" in execution.json()["detail"]
