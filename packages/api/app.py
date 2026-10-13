@@ -60,7 +60,7 @@ from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, Risk
 from packages.exchanges.base import AccountProviderError
 from packages.exchanges.xt import XTSpotError
 from packages.exchanges.registry import build_account_client
-from packages.risk.account_state import PostgresXTPortfolioRepository, PortfolioSnapshotError
+from packages.risk.account_state import PostgresAccountPortfolioRepository, PortfolioSnapshotError
 from contracts.signal import SignalRecord
 from packages.proposals.phase4_builder import Phase4TradeProposalBuilder
 from packages.proposals.persistence import PostgresPhase4ProposalRepository, Phase4ProposalPersistenceError
@@ -428,7 +428,7 @@ async def _evaluate_phase4_intent(
         account_scope_id = os.getenv("MITROS_ACCOUNT_SCOPE_ID", f"{account_snapshot.provider}:primary").strip()
         if not account_scope_id:
             raise RuntimeError("Account provider scope is not configured")
-        account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
+        account_state = await PostgresAccountPortfolioRepository(database_url).record_snapshot(
             user_id=account_scope_id, account=account_snapshot, btc_usdt_price=btc_usdt_price
         )
         batch = await (await build_verified_service()).candles(
@@ -1016,6 +1016,12 @@ def create_app() -> FastAPI:
         payload: Phase4ApprovalPayload,
         user: CurrentUser,
     ) -> Phase4ApprovalResponse:
+        selected_account_provider = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower()
+        if selected_account_provider != "xt.com":
+            raise HTTPException(
+                status_code=409,
+                detail="Human approval is disabled unless account state matches the XT execution venue",
+            )
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
             raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
@@ -1091,6 +1097,12 @@ def create_app() -> FastAPI:
         payload: Phase4ExecutionPayload,
         user: CurrentUser,
     ) -> Phase4ExecutionResponse:
+        selected_account_provider = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower()
+        if selected_account_provider != "xt.com":
+            raise HTTPException(
+                status_code=409,
+                detail="Execution is disabled unless account state matches the XT execution venue",
+            )
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
             raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
