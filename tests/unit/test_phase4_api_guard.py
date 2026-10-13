@@ -84,7 +84,7 @@ def test_phase4_requires_xt_credentials_before_any_risk_decision(monkeypatch) ->
         monkeypatch.setenv(key, value)
     response = _post(INTENT)
     assert response.status_code == 503
-    assert "XT account state" in response.json()["detail"]
+    assert "Account provider state" in response.json()["detail"]
 
 
 
@@ -461,3 +461,26 @@ def test_phase4_readiness_market_data_diagnostic_is_sanitized_and_fail_closed(mo
     assert secret_marker not in caplog.text
     assert "Authorization:" not in caplog.text
     assert "postgresql://test.invalid" not in caplog.text
+
+
+def test_phase4_readiness_uses_simulated_provider_without_xt_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("MITROS_ACCOUNT_EXCHANGE", "simulated")
+    monkeypatch.setenv("MITROS_PHASE4_SIMULATED_ACCOUNT_ENABLED", "true")
+    monkeypatch.setenv("MITROS_ENVIRONMENT", "verification")
+    monkeypatch.delenv("MITROS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_KEY", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_SECRET", raising=False)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        response = TestClient(app).get("/api/v1/risk/phase4/readiness")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["checks"]["account_provider_configured"] is True
+    assert payload["checks"]["account_provider_read_only_connection"] is True
+    assert "xt_read_only_connection" not in payload["checks"]
+    assert "xt_credentials_configured" not in payload["checks"]
+    assert payload["checks"]["live_trading_disabled"] is True
+    assert payload["live_trading_enabled"] is False
+    assert payload["ready"] is False
