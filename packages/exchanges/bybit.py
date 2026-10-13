@@ -75,6 +75,8 @@ class BybitReadOnlyClient:
         result = payload.get("result")
         if not isinstance(result, dict):
             raise BybitReadOnlyError("Bybit response is missing the expected result")
+        if payload.get("time") is not None:
+            result["_response_time_ms"] = payload["time"]
         return result
 
     async def verify_read_only_key(self) -> None:
@@ -114,7 +116,14 @@ class BybitReadOnlyClient:
             raise BybitReadOnlyError("Bybit market ticker contains invalid prices") from exc
         if bid <= 0 or ask < bid or last <= 0:
             raise BybitReadOnlyError("Bybit market ticker prices are invalid")
-        return {"bid": bid, "ask": ask, "last": last, "observed_at": datetime.now(UTC)}
+        observed_at = datetime.now(UTC)
+        try:
+            response_time_ms = int(row.get("_response_time_ms", 0))
+            if response_time_ms > 0:
+                observed_at = datetime.fromtimestamp(response_time_ms / 1000, tz=UTC)
+        except (TypeError, ValueError, OverflowError):
+            pass
+        return {"bid": bid, "ask": ask, "last": last, "observed_at": observed_at}
 
     async def account_snapshot(self) -> AccountSnapshot:
         if not self.configured:
