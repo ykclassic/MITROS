@@ -58,7 +58,6 @@ from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvalu
 from packages.risk.phase4 import IndependentRiskGate
 from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
 from packages.exchanges.base import AccountProviderError
-from packages.exchanges.xt import XTSpotError
 from packages.exchanges.registry import build_account_client
 from packages.risk.account_state import PostgresAccountPortfolioRepository, PortfolioSnapshotError
 from contracts.signal import SignalRecord
