@@ -12,8 +12,10 @@ from urllib.parse import urlencode
 
 import httpx
 
+from packages.exchanges.base import AccountProviderError
 
-class XTSpotError(RuntimeError):
+
+class XTSpotError(AccountProviderError):
     """Raised when XT account or public market data cannot be trusted."""
 
 
