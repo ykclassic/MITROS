@@ -10,7 +10,7 @@ from psycopg.rows import dict_row
 
 from contracts.domain import Direction
 from contracts.phase4_risk import OpenPosition
-from packages.exchanges.xt import XTSpotAccount
+from packages.exchanges.models import AccountSnapshot
 
 
 class PortfolioSnapshotError(RuntimeError):
@@ -29,7 +29,7 @@ class PostgresAccountPortfolioRepository:
         self,
         *,
         user_id: str,
-        account: XTSpotAccount,
+        account: AccountSnapshot,
         btc_usdt_price: Decimal,
     ) -> dict[str, Any]:
         if not user_id or btc_usdt_price <= 0:
