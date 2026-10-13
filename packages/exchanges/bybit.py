@@ -116,13 +116,13 @@ class BybitReadOnlyClient:
             raise BybitReadOnlyError("Bybit market ticker contains invalid prices") from exc
         if bid <= 0 or ask < bid or last <= 0:
             raise BybitReadOnlyError("Bybit market ticker prices are invalid")
-        observed_at = datetime.now(UTC)
         try:
-            response_time_ms = int(row.get("_response_time_ms", 0))
-            if response_time_ms > 0:
-                observed_at = datetime.fromtimestamp(response_time_ms / 1000, tz=UTC)
-        except (TypeError, ValueError, OverflowError):
-            pass
+            response_time_ms = int(result.get("_response_time_ms", 0))
+            if response_time_ms <= 0:
+                raise ValueError("missing exchange timestamp")
+            observed_at = datetime.fromtimestamp(response_time_ms / 1000, tz=UTC)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise BybitReadOnlyError("Bybit ticker observation timestamp is missing or invalid") from exc
         return {"bid": bid, "ask": ask, "last": last, "observed_at": observed_at}
 
     async def account_snapshot(self) -> AccountSnapshot:
@@ -159,8 +159,14 @@ class BybitReadOnlyClient:
             raise BybitReadOnlyError("Bybit wallet balance contains invalid numeric fields") from exc
         if total_equity <= 0:
             raise BybitReadOnlyError("Bybit reported non-positive account equity")
+        try:
+            observed_at_ms = int(result.get("_response_time_ms", 0))
+            if observed_at_ms <= 0:
+                raise ValueError("missing exchange timestamp")
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise BybitReadOnlyError("Bybit account observation timestamp is missing or invalid") from exc
         return AccountSnapshot(
-            observed_at_ms=int(time.time() * 1000),
+            observed_at_ms=observed_at_ms,
             total_btc_value=total_equity / btc_price,
             balances=balances,
             provider="bybit",
