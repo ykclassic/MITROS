@@ -94,8 +94,9 @@ class PostgresXTPortfolioRepository:
                     returning id, snapshot_at
                     """,
                     (
-                        user_id, observed_at, equity, daily_pnl, peak_equity,
-                        btc_usdt_price, json.dumps(balances_json), json.dumps(positions),
+                        user_id, account.provider, account.account_type, observed_at, equity,
+                        daily_pnl, peak_equity, btc_usdt_price,
+                        json.dumps(balances_json), json.dumps(positions),
                     ),
                 )
                 row = await cursor.fetchone()
