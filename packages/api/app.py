@@ -57,9 +57,9 @@ from packages.research.platform import ResearchPlatform
 from contracts.phase4_risk import RiskDecisionResult, RiskDisposition, RiskEvaluationRequest, RiskPolicy
 from packages.risk.phase4 import IndependentRiskGate
 from packages.risk.persistence import PostgresPhase4RiskDecisionRepository, RiskDecisionPersistenceError
-from packages.exchanges.xt import XTSpotError
+from packages.exchanges.base import AccountProviderError
 from packages.exchanges.registry import build_account_client
-from packages.risk.account_state import PostgresXTPortfolioRepository, PortfolioSnapshotError
+from packages.risk.account_state import PostgresAccountPortfolioRepository, PortfolioSnapshotError
 from contracts.signal import SignalRecord
 from packages.proposals.phase4_builder import Phase4TradeProposalBuilder
 from packages.proposals.persistence import PostgresPhase4ProposalRepository, Phase4ProposalPersistenceError
@@ -140,6 +140,7 @@ class Phase4ExecutionResponse(BaseModel):
 class Phase4ReadinessResponse(BaseModel):
     ready: bool
     checks: dict[str, bool]
+    diagnostics: dict[str, str] = Field(default_factory=dict)
     live_trading_enabled: bool
     detail: str
 
@@ -414,17 +415,20 @@ async def _evaluate_phase4_intent(
         raise HTTPException(status_code=503, detail="Phase 4 risk policy is not completely configured") from exc
 
     try:
-        xt = build_account_client()
+        account_client = build_account_client()
     except ValueError as exc:
         raise HTTPException(status_code=503, detail="Configured account exchange is not supported") from exc
     try:
-        xt_account = await xt.account_snapshot()
-        btc_usdt_price = await xt.btc_usdt_price()
-        account_scope_id = os.getenv("MITROS_XT_ACCOUNT_SCOPE_ID", "xt.com:primary").strip()
+        read_only_verifier = getattr(account_client, "verify_read_only_key", None)
+        if read_only_verifier is not None:
+            await read_only_verifier()
+        account_snapshot = await account_client.account_snapshot()
+        btc_usdt_price = await account_client.btc_usdt_price()
+        account_scope_id = os.getenv("MITROS_ACCOUNT_SCOPE_ID", f"{account_snapshot.provider}:primary").strip()
         if not account_scope_id:
-            raise RuntimeError("XT account scope is not configured")
-        account_state = await PostgresXTPortfolioRepository(database_url).record_snapshot(
-            user_id=account_scope_id, account=xt_account, btc_usdt_price=btc_usdt_price
+            raise RuntimeError("Account provider scope is not configured")
+        account_state = await PostgresAccountPortfolioRepository(database_url).record_snapshot(
+            user_id=account_scope_id, account=account_snapshot, btc_usdt_price=btc_usdt_price
         )
         batch = await (await build_verified_service()).candles(
             MarketDataRequest(asset=payload.asset, venue="spot", timeframe="1m", limit=2)
@@ -432,10 +436,10 @@ async def _evaluate_phase4_intent(
         if not batch.candles or any(c.quality is not DataQuality.VERIFIED for c in batch.candles):
             raise RuntimeError("verified market-data evidence unavailable")
         latest_candle = max(batch.candles, key=lambda candle: candle.close_time)
-        ticker = await xt.market_ticker(payload.asset)
+        ticker = await account_client.market_ticker(payload.asset)
         ticker_observed_at = ticker["observed_at"]
         if not isinstance(ticker_observed_at, datetime):
-            raise XTSpotError("XT ticker has no valid observation timestamp")
+            raise AccountProviderError("Account ticker has no valid observation timestamp")
         bid, ask = Decimal(str(ticker["bid"])), Decimal(str(ticker["ask"]))
         mid = (bid + ask) / Decimal("2")
         spread_fraction = (ask - bid) / mid
@@ -449,16 +453,17 @@ async def _evaluate_phase4_intent(
             quote_observed_at=ticker_observed_at,
             verified_reference_price=latest_candle.close,
             current_market_price=Decimal(str(ticker["last"])),
-            account_source="xt.com",
+            account_source=account_snapshot.provider,
             account_snapshot_id=account_state["snapshot_id"],
             account_snapshot_at=account_state["snapshot_at"],
             market_evidence=(
                 f"verified-candle-provider:{latest_candle.provider}",
                 f"verified-candle-version:{latest_candle.provider_version or 'unknown'}",
                 f"verified-candle-checksum:{batch.batch_checksum}",
-                f"xt-ticker-bid:{bid}",
-                f"xt-ticker-ask:{ask}",
-                f"xt-ticker-last:{ticker['last']}",
+                f"account-provider:{account_snapshot.provider}",
+                f"account-ticker-bid:{bid}",
+                f"account-ticker-ask:{ask}",
+                f"account-ticker-last:{ticker['last']}",
             ),
             data_verified=True,
             data_quality=Decimal("1"),
@@ -486,18 +491,18 @@ async def _evaluate_phase4_intent(
     except RiskDecisionPersistenceError as exc:
         logger.error("phase4_risk_audit_unavailable")
         raise HTTPException(status_code=503, detail="Risk decision audit storage is unavailable") from exc
-    except (XTSpotError, PortfolioSnapshotError, RuntimeError, ValueError) as exc:
+    except (AccountProviderError, PortfolioSnapshotError, RuntimeError, ValueError) as exc:
         logger.warning("phase4_risk_evaluation_unavailable category=%s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
-            detail="XT account state or verified market-data evidence is unavailable",
+            detail="Account provider state or verified market-data evidence is unavailable",
         ) from exc
     except Exception as exc:
         logger.error("phase4_risk_evaluation_failed category=%s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Phase 4 risk evaluation is unavailable") from exc
 
     response = Phase4RiskEvaluationResponse(
-        scope="XT_ACCOUNT",
+        scope=f"{account_snapshot.provider.upper()}_ACCOUNT",
         audit_id=str(row["id"]),
         account_snapshot_id=account_state["snapshot_id"],
         market_evidence={
@@ -802,10 +807,11 @@ def create_app() -> FastAPI:
     @app.get("/api/v1/risk/phase4/readiness", response_model=Phase4ReadinessResponse)
     async def phase4_readiness(user: CurrentUser) -> Phase4ReadinessResponse:
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
+        selected_exchange = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower() or "xt.com"
         try:
-            xt = build_account_client()
+            account_client = build_account_client()
         except ValueError:
-            xt = None
+            account_client = None
         try:
             _load_phase4_policy()
             policy_configured = True
@@ -819,15 +825,31 @@ def create_app() -> FastAPI:
             and os.getenv("MITROS_XT_LIVE_ORDERS_ENABLED", "false").strip().lower() == "true"
             and os.getenv("MITROS_XT_PROTECTION_MONITOR_ENABLED", "false").strip().lower() == "true"
         )
+        provider_configured = bool(account_client and account_client.configured)
         checks = {
             "database_configured": bool(database_url),
             "risk_policy_configured": policy_configured,
-            "xt_credentials_configured": bool(xt and xt.configured),
+            "account_provider_configured": provider_configured,
             "live_trading_disabled": not live_enabled,
             "phase4_schema_applied": False,
-            "xt_read_only_connection": False,
+            "account_provider_read_only_connection": False,
             "verified_market_data": False,
         }
+        diagnostics = {
+            "account_provider_read_only_connection": (
+                "not_configured" if not provider_configured else "not_checked"
+            ),
+            "verified_market_data": (
+                "database_not_configured" if not database_url else "not_checked"
+            ),
+        }
+        # Preserve legacy XT-specific keys only when XT is selected.
+        if selected_exchange == "xt.com":
+            checks["xt_credentials_configured"] = provider_configured
+            checks["xt_read_only_connection"] = False
+            diagnostics["xt_read_only_connection"] = (
+                "not_configured" if not provider_configured else "not_checked"
+            )
         if database_url:
             try:
                 async with await psycopg.AsyncConnection.connect(database_url) as connection, connection.cursor() as cursor:
@@ -853,13 +875,33 @@ def create_app() -> FastAPI:
                         checks["phase4_schema_applied"] = bool(row and all(row))
             except psycopg.Error:
                 checks["phase4_schema_applied"] = False
-        if xt and xt.configured:
+        if account_client and account_client.configured:
             try:
-                await xt.account_snapshot()
-                await xt.btc_usdt_price()
-                checks["xt_read_only_connection"] = True
-            except XTSpotError:
-                checks["xt_read_only_connection"] = False
+                read_only_verifier = getattr(account_client, "verify_read_only_key", None)
+                if read_only_verifier is not None:
+                    await read_only_verifier()
+                await account_client.account_snapshot()
+                await account_client.btc_usdt_price()
+            except AccountProviderError:
+                checks["account_provider_read_only_connection"] = False
+                diagnostics["account_provider_read_only_connection"] = "account_snapshot_failed"
+                if selected_exchange == "xt.com":
+                    checks["xt_read_only_connection"] = False
+                    diagnostics["xt_read_only_connection"] = "account_snapshot_failed"
+                logger.warning(
+                    "phase4_readiness_check_failed",
+                    extra={
+                        "check": "account_provider_read_only_connection",
+                        "provider": selected_exchange,
+                        "reason_code": "account_snapshot_failed",
+                    },
+                )
+            else:
+                checks["account_provider_read_only_connection"] = True
+                diagnostics["account_provider_read_only_connection"] = "passed"
+                if selected_exchange == "xt.com":
+                    checks["xt_read_only_connection"] = True
+                    diagnostics["xt_read_only_connection"] = "passed"
         if database_url:
             try:
                 batch = await (await build_verified_service()).candles(
@@ -868,20 +910,39 @@ def create_app() -> FastAPI:
                 checks["verified_market_data"] = bool(
                     batch.candles and all(c.quality is DataQuality.VERIFIED for c in batch.candles)
                 )
-            except Exception:
+                if not batch.candles:
+                    diagnostics["verified_market_data"] = "verified_candles_missing"
+                elif not checks["verified_market_data"]:
+                    diagnostics["verified_market_data"] = "candles_not_verified"
+                else:
+                    diagnostics["verified_market_data"] = "passed"
+            except Exception as exc:
                 checks["verified_market_data"] = False
+                reason_code = _market_data_failure_category(exc)
+                diagnostics["verified_market_data"] = reason_code
+                logger.warning(
+                    "phase4_readiness_check_failed",
+                    extra={
+                        "check": "verified_market_data",
+                        "reason_code": reason_code,
+                        "asset": "BTC/USDT",
+                        "venue": "spot",
+                        "timeframe": "1m",
+                    },
+                )
         required = (
-            "database_configured", "risk_policy_configured", "xt_credentials_configured",
-            "live_trading_disabled", "phase4_schema_applied", "xt_read_only_connection",
-            "verified_market_data",
+            "database_configured", "risk_policy_configured", "account_provider_configured",
+            "live_trading_disabled", "phase4_schema_applied",
+            "account_provider_read_only_connection", "verified_market_data",
         )
         ready = all(checks[name] for name in required)
         return Phase4ReadinessResponse(
             ready=ready,
             checks=checks,
+            diagnostics=diagnostics,
             live_trading_enabled=live_enabled,
             detail=(
-                "XT account, risk policy, audit schema, and verified market-data checks passed."
+                "Selected account provider, risk policy, audit schema, and verified market-data checks passed."
                 if ready else
                 "Phase 4 readiness is incomplete; inspect failed checks. Live trading remains environment-controlled."
             ),
@@ -954,6 +1015,12 @@ def create_app() -> FastAPI:
         payload: Phase4ApprovalPayload,
         user: CurrentUser,
     ) -> Phase4ApprovalResponse:
+        selected_account_provider = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower()
+        if selected_account_provider != "xt.com":
+            raise HTTPException(
+                status_code=409,
+                detail="Human approval is disabled unless account state matches the XT execution venue",
+            )
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
             raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
@@ -1029,6 +1096,12 @@ def create_app() -> FastAPI:
         payload: Phase4ExecutionPayload,
         user: CurrentUser,
     ) -> Phase4ExecutionResponse:
+        selected_account_provider = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower()
+        if selected_account_provider != "xt.com":
+            raise HTTPException(
+                status_code=409,
+                detail="Execution is disabled unless account state matches the XT execution venue",
+            )
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         if not database_url:
             raise HTTPException(status_code=503, detail="Phase 4 database storage is not configured")
