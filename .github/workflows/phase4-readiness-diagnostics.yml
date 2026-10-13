@@ -15,6 +15,7 @@ on:
       - "packages/exchanges/bybit.py"
       - "packages/exchanges/simulated.py"
       - "packages/exchanges/registry.py"
+      - "packages/exchanges/models.py"
       - "packages/exchanges/xt.py"
       - "packages/risk/account_state.py"
       - "tests/unit/test_account_providers.py"
