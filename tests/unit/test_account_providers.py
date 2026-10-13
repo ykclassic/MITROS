@@ -20,9 +20,9 @@ async def test_bybit_adapter_verifies_read_only_key_and_parses_account_snapshot(
         if request.url.path == "/v5/user/query-api":
             assert request.headers.get("X-BAPI-API-KEY") == "bybit-test-key"
             assert request.headers.get("X-BAPI-SIGN")
-            return httpx.Response(200, json={"retCode": 0, "result": {"readOnly": 1}})
+            return httpx.Response(200, json={"retCode": 0, "time": 1791840000000, "result": {"readOnly": 1}})
         if request.url.path == "/v5/account/wallet-balance":
-            return httpx.Response(200, json={"retCode": 0, "result": {"list": [{
+            return httpx.Response(200, json={"retCode": 0, "time": 1791840000000, "result": {"list": [{
                 "totalEquity": "10000",
                 "accountType": "UNIFIED",
                 "coin": [
@@ -47,6 +47,8 @@ async def test_bybit_adapter_verifies_read_only_key_and_parses_account_snapshot(
 
     assert account.provider == "bybit"
     assert account.account_type == "unified"
+    assert account.observed_at_ms == 1791840000000
+    assert ticker["observed_at"].timestamp() == pytest.approx(1791840000.0)
     assert account.total_btc_value == Decimal("10000") / Decimal("65000")
     assert len(account.balances) == 2
     assert ticker["bid"] == Decimal("64999")
