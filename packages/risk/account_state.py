@@ -18,7 +18,7 @@ class PortfolioSnapshotError(RuntimeError):
 
 
 class PostgresXTPortfolioRepository:
-    """Stores XT spot snapshots and derives intraday P&L and observed equity high-water mark."""
+    """Stores provider-tagged account snapshots and derives intraday risk state."""
 
     def __init__(self, database_url: str) -> None:
         if not database_url:
@@ -37,7 +37,7 @@ class PostgresXTPortfolioRepository:
         observed_at = datetime.fromtimestamp(account.observed_at_ms / 1000, tz=UTC)
         equity = account.total_btc_value * btc_usdt_price
         if equity <= 0:
-            raise PortfolioSnapshotError("XT portfolio equity is not positive")
+            raise PortfolioSnapshotError("Account provider reported non-positive portfolio equity")
         positions = [
             {
                 "asset": f"{item.currency}/USDT",
@@ -90,7 +90,7 @@ class PostgresXTPortfolioRepository:
                     insert into phase4_portfolio_snapshots (
                         user_id, venue, account_type, snapshot_at, equity,
                         daily_pnl, peak_equity, btc_usdt_price, balances, positions
-                    ) values (%s, 'xt.com', 'spot', %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
+                    ) values (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb)
                     returning id, snapshot_at
                     """,
                     (
@@ -100,7 +100,7 @@ class PostgresXTPortfolioRepository:
                 )
                 row = await cursor.fetchone()
         except (psycopg.Error, ValueError, TypeError) as exc:
-            raise PortfolioSnapshotError("XT portfolio snapshot persistence failed") from exc
+            raise PortfolioSnapshotError("Account portfolio snapshot persistence failed") from exc
         if row is None:
             raise PortfolioSnapshotError("XT portfolio snapshot could not be retrieved")
         open_positions = tuple(
