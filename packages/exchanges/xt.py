@@ -136,6 +136,7 @@ class XTSpotClient:
             observed_at_ms=int(time.time() * 1000),
             total_btc_value=total_btc,
             balances=balances,
+            provider="xt.com",
         )
 
     async def market_ticker(self, asset: str) -> dict[str, Decimal | datetime]:
