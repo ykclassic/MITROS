@@ -17,7 +17,7 @@ class PortfolioSnapshotError(RuntimeError):
     """Raised when authoritative portfolio state cannot be persisted/reconstructed."""
 
 
-class PostgresXTPortfolioRepository:
+class PostgresAccountPortfolioRepository:
     """Stores provider-tagged account snapshots and derives intraday risk state."""
 
     def __init__(self, database_url: str) -> None:
@@ -135,3 +135,7 @@ def _correlated_group(currency: str) -> str:
         "DOGE": "DOGE-beta", "LINK": "LINK-beta", "LTC": "LTC-beta",
     }
     return groups.get(currency.upper(), f"{currency.upper()}-spot")
+
+
+# Backward-compatible import alias for existing XT-specific callers.
+PostgresXTPortfolioRepository = PostgresAccountPortfolioRepository
