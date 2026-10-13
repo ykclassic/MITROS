@@ -55,9 +55,16 @@ class SimulatedAccountClient:
     async def market_ticker(self, asset: str) -> dict[str, Decimal | datetime]:
         if not self._allowed:
             raise AccountProviderError("Simulated account provider is disabled outside verification environments")
+        prices = {
+            "BTC/USDT": Decimal("65000"),
+            "ETH/USDT": Decimal("3500"),
+            "SOL/USDT": Decimal("150"),
+        }
+        last = prices.get(asset.upper(), Decimal("100"))
+        spread = Decimal("1") if last < Decimal("1000") else Decimal("2")
         return {
-            "bid": Decimal("64999"),
-            "ask": Decimal("65001"),
-            "last": self.btc_usdt_price_value,
+            "bid": last - spread / Decimal("2"),
+            "ask": last + spread / Decimal("2"),
+            "last": last,
             "observed_at": datetime.now(UTC),
         }
