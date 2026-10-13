@@ -810,7 +810,7 @@ def create_app() -> FastAPI:
         database_url = os.getenv("MITROS_DATABASE_URL", "").strip()
         selected_exchange = os.getenv("MITROS_ACCOUNT_EXCHANGE", "xt.com").strip().lower() or "xt.com"
         try:
-            account_client = build_account_client(selected_exchange)
+            account_client = build_account_client()
         except ValueError:
             account_client = None
         try:
