@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from packages.exchanges.base import AccountProviderError
-from packages.exchanges.xt import XTBalance, XTSpotAccount
+from packages.exchanges.models import AccountBalance, AccountSnapshot
 
 
 class SimulatedAccountClient:
@@ -33,18 +33,18 @@ class SimulatedAccountClient:
             raise AccountProviderError("Simulated account provider is disabled outside verification environments")
         return self.btc_usdt_price_value
 
-    async def account_snapshot(self) -> XTSpotAccount:
+    async def account_snapshot(self) -> AccountSnapshot:
         if not self._allowed:
             raise AccountProviderError("Simulated account provider is disabled outside verification environments")
         btc_value = self.equity_usdt / self.btc_usdt_price_value
-        balance = XTBalance(
+        balance = AccountBalance(
             currency="BTC",
             available=btc_value,
             frozen=Decimal("0"),
             total=btc_value,
             btc_value=btc_value,
         )
-        return XTSpotAccount(
+        return AccountSnapshot(
             observed_at_ms=int(time.time() * 1000),
             total_btc_value=btc_value,
             balances=(balance,),
