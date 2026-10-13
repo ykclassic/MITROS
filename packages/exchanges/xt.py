@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import os
 import time
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
@@ -13,28 +12,16 @@ from urllib.parse import urlencode
 import httpx
 
 from packages.exchanges.base import AccountProviderError
+from packages.exchanges.models import AccountBalance, AccountSnapshot
 
 
 class XTSpotError(AccountProviderError):
     """Raised when XT account or public market data cannot be trusted."""
 
 
-@dataclass(frozen=True)
-class XTBalance:
-    currency: str
-    available: Decimal
-    frozen: Decimal
-    total: Decimal
-    btc_value: Decimal
-
-
-@dataclass(frozen=True)
-class XTSpotAccount:
-    observed_at_ms: int
-    total_btc_value: Decimal
-    balances: tuple[XTBalance, ...]
-    provider: str = "xt.com"
-    account_type: str = "spot"
+# Backward-compatible aliases for the provider-neutral account contracts.
+XTBalance = AccountBalance
+XTSpotAccount = AccountSnapshot
 
 
 class XTSpotClient:
