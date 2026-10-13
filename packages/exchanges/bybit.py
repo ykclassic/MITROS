@@ -142,7 +142,7 @@ class BybitReadOnlyClient:
             total_equity = Decimal(str(wallet["totalEquity"]))
             coin_rows = wallet.get("coin", [])
             if not isinstance(coin_rows, list):
-                raise ValueError("coin list is invalid")
+                raise TypeError("coin list is invalid")
             btc_price = await self.btc_usdt_price()
             balances = tuple(
                 AccountBalance(
