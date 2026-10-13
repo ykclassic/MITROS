@@ -32,7 +32,7 @@ class BybitReadOnlyClient:
     ) -> None:
         self.api_key = (api_key if api_key is not None else os.getenv("MITROS_BYBIT_API_KEY", "")).strip()
         self.api_secret = (api_secret if api_secret is not None else os.getenv("MITROS_BYBIT_API_SECRET", "")).strip()
-        self.base_url = (base_url or os.getenv("MITROS_BYBIT_BASE_URL", "https://api.bybit.com")).rstrip("/")
+        self.base_url = (base_url or os.getenv("MITROS_BYBIT_BASE_URL") or "https://api.bybit.com").rstrip("/")
         self.recv_window = "5000"
         self._client = client
 
