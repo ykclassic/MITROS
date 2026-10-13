@@ -12,7 +12,7 @@ from urllib.parse import urlencode
 import httpx
 
 from packages.exchanges.base import AccountProviderError
-from packages.exchanges.xt import XTBalance, XTSpotAccount
+from packages.exchanges.models import AccountBalance, AccountSnapshot
 
 
 class BybitReadOnlyError(AccountProviderError):
@@ -116,7 +116,7 @@ class BybitReadOnlyClient:
             raise BybitReadOnlyError("Bybit market ticker prices are invalid")
         return {"bid": bid, "ask": ask, "last": last, "observed_at": datetime.now(UTC)}
 
-    async def account_snapshot(self) -> XTSpotAccount:
+    async def account_snapshot(self) -> AccountSnapshot:
         if not self.configured:
             raise BybitReadOnlyError("Bybit API credentials are not configured")
         await self.verify_read_only_key()
@@ -136,7 +136,7 @@ class BybitReadOnlyClient:
                 raise ValueError("coin list is invalid")
             btc_price = await self.btc_usdt_price()
             balances = tuple(
-                XTBalance(
+                AccountBalance(
                     currency=str(item["coin"]).upper(),
                     available=max(Decimal("0"), Decimal(str(item.get("walletBalance", "0"))) - Decimal(str(item.get("locked", "0")))),
                     frozen=Decimal(str(item.get("locked", "0"))),
@@ -150,7 +150,7 @@ class BybitReadOnlyClient:
             raise BybitReadOnlyError("Bybit wallet balance contains invalid numeric fields") from exc
         if total_equity <= 0:
             raise BybitReadOnlyError("Bybit reported non-positive account equity")
-        return XTSpotAccount(
+        return AccountSnapshot(
             observed_at_ms=int(time.time() * 1000),
             total_btc_value=total_equity / btc_price,
             balances=balances,
