@@ -31,7 +31,7 @@ async def test_bybit_adapter_verifies_read_only_key_and_parses_account_snapshot(
                 ],
             }]}})
         if request.url.path == "/v5/market/tickers":
-            return httpx.Response(200, json={"retCode": 0, "result": {"list": [{
+            return httpx.Response(200, json={"retCode": 0, "time": 1791840000000, "result": {"list": [{
                 "symbol": "BTCUSDT", "lastPrice": "65000", "bid1Price": "64999", "ask1Price": "65001",
             }]}})
         return httpx.Response(404, json={"retCode": 10001, "result": {}})
