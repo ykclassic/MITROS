@@ -170,7 +170,7 @@ class XTSpotClient:
                 raise ValueError("missing exchange timestamp")
             observed_at = datetime.fromtimestamp(exchange_timestamp / 1000, tz=UTC)
         except (TypeError, ValueError, OverflowError) as exc:
-            raise XTSpotError("XT ticker observation timestamp is missing or invalid") from exc
+            raise XTSpotError("XT ticker is missing a valid exchange timestamp") from exc
         return {
             "bid": bid,
             "ask": ask,
