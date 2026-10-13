@@ -4,12 +4,20 @@ on:
   push:
     branches:
       - fix/safe-phase4-readiness-diagnostics
+      - feat/phase4-simulated-bybit-readonly
   pull_request:
     branches:
       - main
       - phase/risk-management-trade-proposals
     paths:
       - "packages/api/app.py"
+      - "packages/exchanges/base.py"
+      - "packages/exchanges/bybit.py"
+      - "packages/exchanges/simulated.py"
+      - "packages/exchanges/registry.py"
+      - "packages/exchanges/xt.py"
+      - "packages/risk/account_state.py"
+      - "tests/unit/test_account_providers.py"
       - "tests/unit/test_phase4_api_guard.py"
       - "tests/unit/test_market_data.py"
       - "tests/unit/test_provider_replacement.py"
@@ -39,5 +47,6 @@ jobs:
           tests/unit/test_market_data.py
           tests/unit/test_provider_replacement.py
           tests/unit/test_xt_account.py
+          tests/unit/test_account_providers.py
           tests/unit/test_phase4_api_guard.py
           -q
