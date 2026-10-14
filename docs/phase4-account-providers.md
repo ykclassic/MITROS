@@ -1,55 +1,44 @@
-# Phase 4 Account Providers
+# Phase 4 Account Providers and Verification Runbook
 
-Phase 4 obtains authoritative portfolio state through the account-provider registry. The provider supplies a read-only account snapshot, a BTC/USDT valuation price, and a current bid/ask/last quote. Verified candle data remains a separate required input.
+## Safety invariants
+
+- PR #74 must remain open and unmerged until every required CI job and the controlled authenticated verification are explicitly successful.
+- The existing Render service and production Supabase project are outside the scope of these checks and must not be changed.
+- Keep `MITROS_XT_LIVE_ORDERS_ENABLED=false`. The Bybit adapter is GET-only and cannot submit orders.
+- Do not expose credentials, authorization headers, signatures, response bodies, or secret-bearing exception text in logs.
 
 ## Provider selection
 
 Set `MITROS_ACCOUNT_EXCHANGE` to one of:
 
-- `xt.com` — existing XT.com account adapter and current execution venue.
-- `bybit` — Bybit V5 read-only account adapter. This adapter implements GET requests only and validates that the API key reports `readOnly=1`.
-- `simulated` — deterministic account fixture for controlled verification only.
+- `xt.com`: the existing XT account adapter and current execution venue.
+- `bybit`: the Bybit V5 read-only account adapter.
+- `simulated`: deterministic fixtures only on an explicitly permitted non-production verification/development environment.
 
-### Simulated verification
+Bybit requires `MITROS_BYBIT_API_KEY` and `MITROS_BYBIT_API_SECRET`. The optional `MITROS_BYBIT_BASE_URL` defaults to `https://api.bybit.com`. Use an exchange key with read-only permissions and no order, transfer, or withdrawal permissions. The native adapter calls the API-key information endpoint and requires `readOnly=1`.
 
-Set all of the following only on a non-production verification target:
+## Isolated PostgreSQL integration tests
 
-```dotenv
-MITROS_ENVIRONMENT=verification
-MITROS_ACCOUNT_EXCHANGE=simulated
-MITROS_PHASE4_SIMULATED_ACCOUNT_ENABLED=true
-MITROS_EXECUTION_MODE=paper
-MITROS_LIVE_TRADING_ENABLED=false
-MITROS_XT_LIVE_ORDERS_ENABLED=false
-```
+The CI job provisions an ephemeral PostgreSQL service with a database named `mitros_test_db`. It applies the repository's real foundation and Phase 4 migration files to that database before tests run:
 
-The simulated adapter is rejected unless the explicit enable flag is true and `MITROS_ENVIRONMENT` is one of `test`, `verification`, `staging`, `development`, or `local`. It uses deterministic fixture balances and prices; these are not exchange data and must never be represented as production account state.
+- `20261007222136_0001_mitros_foundation.sql`
+- `20261010174746_0010_phase4_risk_decision_audit.sql`
+- `20261010174748_0011_phase4_xt_portfolio_snapshots.sql`
+- `20261010174751_0012_phase4_proposal_lifecycle.sql`
+- `20261010200000_0013_phase4_xt_protection_monitor.sql`
 
-The database and complete Phase 4 risk-policy configuration are still required for persisted risk-decision tests. The market-data readiness check also remains independent and must pass with verified candles. A simulated account does not suppress or bypass market-data, freshness, risk, audit, or schema gates.
+The integration test guard refuses non-local hosts and database names without `mitros_test`. The tests verify snapshot persistence/read-back and durable rejected-risk audit persistence without creating a trade proposal. They do not connect to production.
 
-### Bybit read-only account access
+## Authenticated Bybit smoke test
 
-Configure `MITROS_ACCOUNT_EXCHANGE=bybit` and set:
+The `Authenticated Bybit Read-Only Smoke Test` workflow is manually dispatched with the exact current head SHA of PR #74. Before checking out or running the candidate, it confirms that PR #74 is still open/unmerged, originates from `phase/phase4-bybit-reconciled` in `ykclassic/MITROS`, and has the requested SHA as its current head. A protected `production-verification` environment must contain the Bybit read-only credentials. The verification checks:
 
-- `MITROS_BYBIT_API_KEY`
-- `MITROS_BYBIT_API_SECRET`
-- Optional `MITROS_BYBIT_BASE_URL` (defaults to `https://api.bybit.com`)
+1. Native adapter confirms the API key's `readOnly=1` status.
+2. An authenticated account snapshot is positive and fresh.
+3. The BTC/USDT ticker price is positive and its exchange observation timestamp is fresh.
 
-Create a dedicated Bybit API key with read-only permissions and no order, transfer, or withdrawal permissions. The adapter checks Bybit's API-key information endpoint and rejects the account if `readOnly` is not `1`. The adapter reads Unified Trading Account balances and spot tickers only; it does not place orders or mutate account settings.
+A successful smoke test proves Bybit read-only connectivity only. It does not prove full Phase 4 readiness or authorize approval/execution; verified market data, risk audit, proposal lifecycle and all other release gates remain independent.
 
-## Approval and execution boundary
+## Release posture
 
-The current execution gateway remains XT-specific. Human approval and execution endpoints therefore return HTTP 409 when the selected account provider is not `xt.com`. This prevents a simulated or Bybit account snapshot from authorizing an order on a different venue. A future Bybit execution integration would require a separate implementation and venue-bound approval/revalidation tests.
-
-## Verification
-
-Run the focused suite:
-
-```bash
-python -m pytest \
-  tests/unit/test_account_providers.py \
-  tests/unit/test_xt_account.py \
-  tests/unit/test_phase4_api_guard.py -q
-```
-
-Do not merge until required CI is green and authenticated end-to-end verification has passed on a separate controlled target. Keep production configuration unchanged and live trading disabled during this work.
+**HOLD.** No merge or production deployment is authorized by these verification steps. The existing production Render service and Supabase database must remain untouched, and live trading must remain disabled until the separate release approval.
