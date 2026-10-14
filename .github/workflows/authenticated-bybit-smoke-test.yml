@@ -65,7 +65,6 @@ jobs:
           persist-credentials: false
 
       - name: Verify checked-out commit
-        env:
         run: |
           set -euo pipefail
           actual_sha="$(git rev-parse HEAD)"
