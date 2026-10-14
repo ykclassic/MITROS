@@ -98,3 +98,65 @@ jobs:
             phase/*) ;;
             *) echo "PR must originate from phase/*"; exit 1;;
           esac
+
+  phase4-postgres-integration:
+    name: Phase 4 PostgreSQL Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: mitros_test
+          POSTGRES_PASSWORD: mitros_test_password
+          POSTGRES_DB: mitros_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mitros_test -d mitros_test_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Prepare migration roles in the isolated test database
+        env:
+          DATABASE_URL: postgresql://mitros_test:mitros_test_password@localhost:5432/mitros_test_db
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon; END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated; END IF;
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN CREATE ROLE service_role; END IF;
+          END
+          $$;
+          SQL
+      - name: Apply real foundation and Phase 4 migrations
+        env:
+          DATABASE_URL: postgresql://mitros_test:mitros_test_password@localhost:5432/mitros_test_db
+        run: |
+          set -euo pipefail
+          for migration in \
+            supabase/migrations/20261007222136_0001_mitros_foundation.sql \
+            supabase/migrations/20261010174746_0010_phase4_risk_decision_audit.sql \
+            supabase/migrations/20261010174748_0011_phase4_xt_portfolio_snapshots.sql \
+            supabase/migrations/20261010174751_0012_phase4_proposal_lifecycle.sql \
+            supabase/migrations/20261010200000_0013_phase4_xt_protection_monitor.sql
+          do
+            test -s "$migration"
+            echo "Applying $migration"
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Run Phase 4 persistence integration tests
+        env:
+          DATABASE_URL: postgresql://mitros_test:mitros_test_password@localhost:5432/mitros_test_db
+          MITROS_XT_LIVE_ORDERS_ENABLED: "false"
+          MITROS_LIVE_TRADING_ENABLED: "false"
+        run: python -m pytest tests/integration/test_phase4_lifecycle_integration.py -vv --tb=short
