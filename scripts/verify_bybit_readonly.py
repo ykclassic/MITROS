@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Run sanitized, authenticated, read-only Bybit connectivity verification."""
 
 from __future__ import annotations
@@ -70,7 +69,7 @@ async def main() -> int:
     except (RuntimeError, ValueError, TypeError) as exc:
         logger.error("result=failed reason_code=%s", str(exc))
         return 1
-    except Exception as exc:  # noqa: BLE001 - fail closed without printing exception text.
+    except Exception as exc:
         logger.error("result=failed category=%s", type(exc).__name__)
         return 1
     return 0
