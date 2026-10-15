@@ -98,7 +98,7 @@ jobs:
           print("Bybit credential presence check passed; values and lengths were not logged.")
           PY
 
-      - name: Capture runner public egress IP
+      - name: Capture runner public egress IP and network region
         run: |
           set -euo pipefail
           egress_ip="$(curl --fail --silent --show-error --max-time 10 https://api.ipify.org)"
@@ -107,8 +107,10 @@ jobs:
             exit 1
           fi
           echo "Runner public egress IPv4: $egress_ip"
-          echo "Compare this address with the Bybit API key's configured IP allowlist in Bybit API Management."
-          echo "This step does not access or print API credentials."
+          echo "Runner network country and organization:"
+          curl --fail --silent --show-error --max-time 10 https://ipinfo.io/json | grep -E '"country"|"org"'
+          echo "Compare the egress IP with the Bybit API key's configured IP allowlist in Bybit API Management."
+          echo "Only public network metadata is logged; API credentials are not accessed by this step."
 
       - name: Run authenticated read-only verification
         env:
