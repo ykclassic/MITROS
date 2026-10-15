@@ -18,6 +18,11 @@ from packages.exchanges.models import AccountBalance, AccountSnapshot
 class BybitReadOnlyError(AccountProviderError):
     """Raised when a Bybit read-only account request cannot be trusted."""
 
+    def __init__(self, message: str, *, status_code: int | None = None, reason_code: str | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.reason_code = reason_code or "bybit_request_failed"
+
 
 class BybitReadOnlyClient:
     """Minimal Bybit V5 read-only adapter. It exposes GET requests only."""
@@ -65,8 +70,16 @@ class BybitReadOnlyClient:
             )
             response.raise_for_status()
             payload = response.json()
+        except httpx.HTTPStatusError as exc:
+            # Expose only HTTP status; never log the response body, headers, or request URL.
+            status_code = exc.response.status_code
+            raise BybitReadOnlyError(
+                f"Bybit HTTP request failed with status {status_code}",
+                status_code=status_code,
+                reason_code=f"bybit_http_{status_code}",
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
-            raise BybitReadOnlyError("Bybit API request failed") from exc
+            raise BybitReadOnlyError("Bybit API request failed", reason_code="bybit_transport_or_json_error") from exc
         finally:
             if self._client is None:
                 await client.aclose()
