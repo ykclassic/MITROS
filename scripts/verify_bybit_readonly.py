@@ -63,8 +63,13 @@ async def main() -> int:
     try:
         await run_verification()
     except BybitReadOnlyError as exc:
-        # Native adapter messages are sanitized; log only the exception category anyway.
-        logger.error("result=failed category=%s", type(exc).__name__)
+        # Emit only the allowlisted reason code and HTTP status, never exception text or response bodies.
+        logger.error(
+            "result=failed category=%s reason_code=%s http_status=%s",
+            type(exc).__name__,
+            exc.reason_code,
+            exc.status_code if exc.status_code is not None else "not_available",
+        )
         return 1
     except (RuntimeError, ValueError, TypeError) as exc:
         logger.error("result=failed reason_code=%s", str(exc))
