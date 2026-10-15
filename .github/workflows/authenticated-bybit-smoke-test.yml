@@ -98,6 +98,18 @@ jobs:
           print("Bybit credential presence check passed; values and lengths were not logged.")
           PY
 
+      - name: Capture runner public egress IP
+        run: |
+          set -euo pipefail
+          egress_ip="$(curl --fail --silent --show-error --max-time 10 https://api.ipify.org)"
+          if [[ ! "$egress_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "::error::Could not validate runner public IPv4 egress address."
+            exit 1
+          fi
+          echo "Runner public egress IPv4: $egress_ip"
+          echo "Compare this address with the Bybit API key's configured IP allowlist in Bybit API Management."
+          echo "This step does not access or print API credentials."
+
       - name: Run authenticated read-only verification
         env:
           MITROS_BYBIT_API_KEY: ${{ secrets.MITROS_BYBIT_API_KEY }}
