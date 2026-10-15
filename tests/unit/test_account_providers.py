@@ -89,3 +89,23 @@ async def test_simulated_provider_is_deterministic_and_verification_gated(monkey
     assert first.account_type == "verification"
     assert first.total_btc_value == second.total_btc_value
     assert await client.btc_usdt_price() == Decimal("65000")
+
+
+
+@pytest.mark.asyncio
+async def test_bybit_http_error_exposes_only_sanitized_status_and_reason_code() -> None:
+    secret_marker = "SENSITIVE_RESPONSE_BODY_MARKER"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text=secret_marker)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        bybit = BybitReadOnlyClient(
+            api_key="key", api_secret="secret", base_url="https://bybit.test", client=client
+        )
+        with pytest.raises(BybitReadOnlyError) as caught:
+            await bybit.verify_read_only_key()
+
+    assert caught.value.status_code == 403
+    assert caught.value.reason_code == "bybit_http_403"
+    assert secret_marker not in str(caught.value)
