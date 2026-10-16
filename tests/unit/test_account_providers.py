@@ -127,6 +127,8 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -
             assert request.headers.get("ACCESS-SIGN")
             assert request.headers.get("ACCESS-TIMESTAMP")
             assert request.headers.get("ACCESS-PASSPHRASE") == "bitget-test-passphrase"
+            assert request.headers.get("Content-Type") == "application/json"
+            assert request.headers.get("locale") == "en-US"
             return httpx.Response(200, json={
                 "code": "00000", "requestTime": 1791840000000,
                 "data": {"permType": "readonly", "permissions": ["uta_mgt"]},
@@ -219,3 +221,25 @@ def test_registry_supports_bitget_read_only_provider() -> None:
     from packages.exchanges.bitget import BitgetReadOnlyClient
 
     assert isinstance(build_account_client("bitget"), BitgetReadOnlyClient)
+
+@pytest.mark.asyncio
+async def test_bitget_http_400_maps_documented_error_code_without_exposing_response_body() -> None:
+    from packages.exchanges.bitget import BitgetReadOnlyClient, BitgetReadOnlyError
+
+    secret_marker = "SENSITIVE_RESPONSE_BODY_MARKER"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"code": "40009", "msg": secret_marker})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        bitget = BitgetReadOnlyClient(
+            api_key="key", api_secret="secret", passphrase="passphrase",
+            base_url="https://bitget.test", client=http_client,
+        )
+        with pytest.raises(BitgetReadOnlyError) as caught:
+            await bitget.verify_read_only_key()
+
+    assert caught.value.status_code == 400
+    assert caught.value.reason_code == "bitget_signature_invalid"
+    assert secret_marker not in str(caught.value)
+\n
