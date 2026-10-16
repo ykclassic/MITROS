@@ -114,7 +114,7 @@ async def test_bybit_http_error_exposes_only_sanitized_status_and_reason_code() 
 
 
 @pytest.mark.asyncio
-async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -> None:
+async def test_bitget_adapter_signs_read_only_requests_and_parses_classic_spot_assets() -> None:
     from packages.exchanges.bitget import BitgetReadOnlyClient
 
     calls: list[httpx.Request] = []
@@ -122,7 +122,7 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         assert request.method == "GET"
-        if request.url.path == "/api/v3/account/info":
+        if request.url.path == "/api/v2/spot/account/info":
             assert request.headers.get("ACCESS-KEY") == "bitget-test-key"
             assert request.headers.get("ACCESS-SIGN")
             assert request.headers.get("ACCESS-TIMESTAMP")
@@ -131,18 +131,15 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -
             assert request.headers.get("locale") == "en-US"
             return httpx.Response(200, json={
                 "code": "00000", "requestTime": 1791840000000,
-                "data": {"permType": "readonly", "permissions": ["uta_mgt"]},
+                "data": {"authorities": ["stor", "cpor"]},
             })
-        if request.url.path == "/api/v3/account/assets":
+        if request.url.path == "/api/v2/spot/account/assets":
             return httpx.Response(200, json={
                 "code": "00000", "requestTime": 1791840000000,
-                "data": {
-                    "btcEquity": "0.02", "usdtEquity": "1300",
-                    "assets": [
-                        {"coin": "BTC", "equity": "0.01", "usdValue": "650", "available": "0.01", "locked": "0"},
-                        {"coin": "USDT", "equity": "650", "usdValue": "650", "available": "640", "locked": "10"},
-                    ],
-                },
+                "data": [
+                    {"coin": "BTC", "available": "0.01", "frozen": "0", "locked": "0"},
+                    {"coin": "USDT", "available": "640", "frozen": "0", "locked": "10"},
+                ],
             })
         if request.url.path == "/api/v2/spot/market/tickers":
             return httpx.Response(200, json={
@@ -164,7 +161,7 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -
         ticker = await bitget.market_ticker("BTC/USDT")
 
     assert account.provider == "bitget"
-    assert account.account_type == "unified"
+    assert account.account_type == "spot"
     assert account.observed_at_ms == 1791840000000
     assert account.total_btc_value == Decimal("0.02")
     assert len(account.balances) == 2
@@ -172,16 +169,21 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -
     assert account.balances[1].btc_value == Decimal("650") / Decimal("65000")
     assert ticker["last"] == Decimal("65000")
     assert all(request.method == "GET" for request in calls)
+    assert {request.url.path for request in calls}.issubset({
+        "/api/v2/spot/account/info",
+        "/api/v2/spot/account/assets",
+        "/api/v2/spot/market/tickers",
+    })
 
 
 @pytest.mark.asyncio
-async def test_bitget_adapter_rejects_non_read_only_permissions() -> None:
+async def test_bitget_adapter_rejects_write_permissions() -> None:
     from packages.exchanges.bitget import BitgetReadOnlyClient, BitgetReadOnlyError
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={
             "code": "00000", "requestTime": 1791840000000,
-            "data": {"permType": "read_and_write", "permissions": ["uta_mgt", "uta_trade"]},
+            "data": {"authorities": ["stor", "stow"]},
         })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
@@ -192,7 +194,7 @@ async def test_bitget_adapter_rejects_non_read_only_permissions() -> None:
         with pytest.raises(BitgetReadOnlyError) as caught:
             await bitget.verify_read_only_key()
 
-    assert caught.value.reason_code == "bitget_key_not_read_only"
+    assert caught.value.reason_code == "bitget_write_permissions_detected"
 
 
 @pytest.mark.asyncio
