@@ -83,6 +83,39 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install -e ".[dev]"
 
+      - name: Validate Bitget adapter uses Classic v2 endpoints
+        run: |
+          set -euo pipefail
+          adapter="scripts/verify_bitget_readonly.py"
+          if [[ ! -f "$adapter" ]]; then
+            echo "::error::Bitget read-only adapter not found at $adapter."
+            exit 1
+          fi
+          # Required Classic v2 spot endpoints for a v2-model API key.
+          required_paths=(
+            "/api/v2/spot/account/info"
+            "/api/v2/spot/account/assets"
+          )
+          # Endpoints that belong to the Unified Trading Account (UTA) model.
+          # Calling these with a v2 key returns 40084.
+          forbidden_paths=(
+            "/api/v3/account/info"
+            "/api/v3/account/assets"
+          )
+          for path in "${required_paths[@]}"; do
+            if ! grep -q -- "$path" "$adapter"; then
+              echo "::error::Adapter is missing required Classic v2 endpoint: $path"
+              exit 1
+            fi
+          done
+          for path in "${forbidden_paths[@]}"; do
+            if grep -q -- "$path" "$adapter"; then
+              echo "::error::Adapter still references UTA endpoint $path, which causes 40084 with a v2 key."
+              exit 1
+            fi
+          done
+          echo "Adapter is confirmed to use Classic v2 spot endpoints only."
+
       - name: Validate credential presence without disclosure
         env:
           MITROS_BITGET_API_KEY: ${{ secrets.MITROS_BITGET_API_KEY }}
