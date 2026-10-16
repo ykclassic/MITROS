@@ -86,7 +86,7 @@ jobs:
       - name: Validate Bitget adapter uses Classic v2 endpoints
         run: |
           set -euo pipefail
-          adapter="scripts/verify_bitget_readonly.py"
+          adapter="packages/exchanges/bitget.py"
           if [[ ! -f "$adapter" ]]; then
             echo "::error::Bitget read-only adapter not found at $adapter."
             exit 1
