@@ -13,12 +13,12 @@ Set `MITROS_ACCOUNT_EXCHANGE` to one of:
 
 - `xt.com`: the existing XT account adapter and current execution venue.
 - `bybit`: the Bybit V5 read-only account adapter.
-- `bitget`: the Bitget Classic Spot read-only account adapter.
+- `bitget`: the Bitget Unified Trading Account (UTA) read-only account adapter.
 - `simulated`: deterministic fixtures only on an explicitly permitted non-production verification/development environment.
 
 Bitget verification requires `MITROS_BITGET_API_KEY`, `MITROS_BITGET_API_SECRET`, and `MITROS_BITGET_API_PASSPHRASE`. The optional `MITROS_BITGET_BASE_URL` defaults to `https://api.bitget.com`. Create a dedicated API key with read-only permissions and no trade, transfer, or withdrawal permissions. Bitget recommends IP binding; GitHub-hosted runner egress IPs may change, so use a stable, controlled runner or carefully managed allowlist if IP binding is enabled.
 
-The adapter signs GET requests using Bitget's documented HMAC-SHA256/Base64 scheme, queries account permission metadata, rejects reported write authorities, fetches spot assets, and uses public spot tickers to value non-USDT balances in BTC. Unsupported/unpriceable non-zero assets fail closed rather than silently disappearing from the account valuation. API failures expose only sanitized reason codes and HTTP status, never response bodies or credential material.
+The adapter signs GET requests using Bitget's documented HMAC-SHA256/Base64 scheme, checks the API key's explicit read-only permission type, rejects non-read-only keys, fetches unified-account assets and BTC equity, and uses a public BTC/USDT ticker to validate freshness and value per-asset balances in BTC. API failures expose only sanitized reason codes and HTTP status, never response bodies or credential material.
 
 Bitget API access is not guaranteed from every server or region. The protected authenticated smoke test is the evidence required for the actual runner environment; public market-data access alone does not establish authenticated account access.
 
