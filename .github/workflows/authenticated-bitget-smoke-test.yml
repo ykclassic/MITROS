@@ -7,9 +7,11 @@ on:
         description: "Exact current head SHA of PR #74 to verify"
         required: true
         type: string
+  # On an unmerged PR, this event is the supported way to run the protected check.
+  # GitHub's manual Run workflow button is available only after this workflow exists on the default branch.
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
