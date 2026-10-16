@@ -1,4 +1,4 @@
-name: Authenticated Bybit Read-Only Smoke Test
+name: Authenticated Bitget Read-Only Smoke Test
 
 on:
   workflow_dispatch:
@@ -16,13 +16,13 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: mitros-bybit-readonly-verification
+  group: mitros-bitget-readonly-verification
   cancel-in-progress: false
 
 jobs:
-  bybit-smoke-verification:
+  bitget-smoke-verification:
     if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 74
-    name: Protected Bybit Read-Only Verification
+    name: Protected Bitget Read-Only Verification
     runs-on: ubuntu-latest
     env:
       CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit_sha || github.event.pull_request.head.sha }}
@@ -83,22 +83,22 @@ jobs:
 
       - name: Validate credential presence without disclosure
         env:
-          MITROS_BYBIT_API_KEY: ${{ secrets.MITROS_BYBIT_API_KEY }}
-          MITROS_BYBIT_API_SECRET: ${{ secrets.MITROS_BYBIT_API_SECRET }}
+          MITROS_BITGET_API_KEY: ${{ secrets.MITROS_BITGET_API_KEY }}
+          MITROS_BITGET_API_SECRET: ${{ secrets.MITROS_BITGET_API_SECRET }}
+          MITROS_BITGET_API_PASSPHRASE: ${{ secrets.MITROS_BITGET_API_PASSPHRASE }}
         run: |
           set -euo pipefail
           python - <<'PY'
           import os
           import sys
-          key = os.getenv("MITROS_BYBIT_API_KEY", "").strip()
-          secret = os.getenv("MITROS_BYBIT_API_SECRET", "").strip()
-          if not key or not secret:
-              print("::error::Required Bybit credentials are not configured in the protected environment.")
+          names = ("MITROS_BITGET_API_KEY", "MITROS_BITGET_API_SECRET", "MITROS_BITGET_API_PASSPHRASE")
+          if any(not os.getenv(name, "").strip() for name in names):
+              print("::error::Required Bitget credentials are not configured in the protected environment.")
               sys.exit(1)
-          print("Bybit credential presence check passed; values and lengths were not logged.")
+          print("Bitget credential presence check passed; values were not logged.")
           PY
 
-      - name: Capture runner public egress IP and network region
+      - name: Capture runner public egress IP
         run: |
           set -euo pipefail
           egress_ip="$(curl --fail --silent --show-error --max-time 10 https://api.ipify.org)"
@@ -107,16 +107,15 @@ jobs:
             exit 1
           fi
           echo "Runner public egress IPv4: $egress_ip"
-          echo "Runner network country and organization:"
-          curl --fail --silent --show-error --max-time 10 https://ipinfo.io/json | grep -E '"country"|"org"'
-          echo "Compare the egress IP with the Bybit API key's configured IP allowlist in Bybit API Management."
-          echo "Only public network metadata is logged; API credentials are not accessed by this step."
+          echo "If the Bitget key uses IP binding, allow this address in the key's IP allowlist."
+          echo "No API credentials are accessed by this step."
 
       - name: Run authenticated read-only verification
         env:
-          MITROS_BYBIT_API_KEY: ${{ secrets.MITROS_BYBIT_API_KEY }}
-          MITROS_BYBIT_API_SECRET: ${{ secrets.MITROS_BYBIT_API_SECRET }}
-          MITROS_BYBIT_BASE_URL: ${{ vars.MITROS_BYBIT_BASE_URL }}
-          MITROS_BYBIT_MAX_TICKER_AGE_SECONDS: "60"
+          MITROS_BITGET_API_KEY: ${{ secrets.MITROS_BITGET_API_KEY }}
+          MITROS_BITGET_API_SECRET: ${{ secrets.MITROS_BITGET_API_SECRET }}
+          MITROS_BITGET_API_PASSPHRASE: ${{ secrets.MITROS_BITGET_API_PASSPHRASE }}
+          MITROS_BITGET_BASE_URL: ${{ vars.MITROS_BITGET_BASE_URL }}
+          MITROS_BITGET_MAX_SNAPSHOT_AGE_SECONDS: "60"
           MITROS_XT_LIVE_ORDERS_ENABLED: "false"
-        run: python scripts/verify_bybit_readonly.py
+        run: python scripts/verify_bitget_readonly.py
