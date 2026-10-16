@@ -190,6 +190,7 @@ class BitgetReadOnlyClient:
                 raise TypeError("asset list is invalid")
         except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
             raise BitgetReadOnlyError("Bitget UTA equity response contains invalid fields") from exc
+        btc_price = await self.btc_usdt_price()
         balances: list[AccountBalance] = []
         for row in rows:
             if not isinstance(row, dict):
@@ -200,9 +201,7 @@ class BitgetReadOnlyClient:
                 total = Decimal(str(row["equity"]))
                 usd_value = Decimal(str(row["usdValue"]))
                 locked = Decimal(str(row.get("locked", "0")))
-                btc_value = total if currency == "BTC" else usd_value / Decimal(
-                    str(data["usdtEquity"])
-                ) * Decimal(str(data["btcEquity"])) if Decimal(str(data["usdtEquity"])) > 0 else Decimal("0")
+                btc_value = total if currency == "BTC" else usd_value / btc_price
                 if min(available, total, usd_value, locked) < 0:
                     raise ValueError("negative balance")
             except (KeyError, InvalidOperation, TypeError, ValueError, ZeroDivisionError) as exc:
