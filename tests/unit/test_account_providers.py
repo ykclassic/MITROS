@@ -109,3 +109,108 @@ async def test_bybit_http_error_exposes_only_sanitized_status_and_reason_code() 
     assert caught.value.status_code == 403
     assert caught.value.reason_code == "bybit_http_403"
     assert secret_marker not in str(caught.value)
+
+
+
+@pytest.mark.asyncio
+async def test_bitget_adapter_signs_read_only_requests_and_parses_spot_assets() -> None:
+    from packages.exchanges.bitget import BitgetReadOnlyClient
+
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        assert request.method == "GET"
+        if request.url.path == "/api/v2/spot/account/info":
+            assert request.headers.get("ACCESS-KEY") == "bitget-test-key"
+            assert request.headers.get("ACCESS-SIGN")
+            assert request.headers.get("ACCESS-TIMESTAMP")
+            assert request.headers.get("ACCESS-PASSPHRASE") == "bitget-test-passphrase"
+            return httpx.Response(200, json={
+                "code": "00000", "requestTime": 1791840000000,
+                "data": {"authorities": ["coor", "cpor"]},
+            })
+        if request.url.path == "/api/v2/spot/account/assets":
+            return httpx.Response(200, json={
+                "code": "00000", "requestTime": 1791840000000,
+                "data": [
+                    {"coin": "BTC", "available": "0.01", "frozen": "0", "locked": "0"},
+                    {"coin": "USDT", "available": "650", "frozen": "10", "locked": "0"},
+                ],
+            })
+        if request.url.path == "/api/v2/spot/market/tickers":
+            return httpx.Response(200, json={
+                "code": "00000", "requestTime": 1791840000000,
+                "data": [{"symbol": "BTCUSDT", "bidPr": "64999", "askPr": "65001", "lastPr": "65000"}],
+            })
+        return httpx.Response(404, text="SENSITIVE_RESPONSE_BODY_MARKER")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        bitget = BitgetReadOnlyClient(
+            api_key="bitget-test-key",
+            api_secret="bitget-test-secret",
+            passphrase="bitget-test-passphrase",
+            base_url="https://bitget.test",
+            client=http_client,
+        )
+        await bitget.verify_read_only_key()
+        account = await bitget.account_snapshot()
+        ticker = await bitget.market_ticker("BTC/USDT")
+
+    assert account.provider == "bitget"
+    assert account.account_type == "spot"
+    assert account.observed_at_ms == 1791840000000
+    assert account.total_btc_value == Decimal("0.01") + Decimal("660") / Decimal("65000")
+    assert len(account.balances) == 2
+    assert account.balances[1].frozen == Decimal("10")
+    assert ticker["last"] == Decimal("65000")
+    assert all(request.method == "GET" for request in calls)
+
+
+@pytest.mark.asyncio
+async def test_bitget_adapter_rejects_write_permissions() -> None:
+    from packages.exchanges.bitget import BitgetReadOnlyClient, BitgetReadOnlyError
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "code": "00000", "requestTime": 1791840000000,
+            "data": {"authorities": ["coor", "stow"]},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        bitget = BitgetReadOnlyClient(
+            api_key="key", api_secret="secret", passphrase="passphrase",
+            base_url="https://bitget.test", client=http_client,
+        )
+        with pytest.raises(BitgetReadOnlyError) as caught:
+            await bitget.verify_read_only_key()
+
+    assert caught.value.reason_code == "bitget_write_permissions_detected"
+
+
+@pytest.mark.asyncio
+async def test_bitget_http_error_exposes_only_sanitized_status_and_reason_code() -> None:
+    from packages.exchanges.bitget import BitgetReadOnlyClient, BitgetReadOnlyError
+
+    secret_marker = "SENSITIVE_RESPONSE_BODY_MARKER"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text=secret_marker)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+        bitget = BitgetReadOnlyClient(
+            api_key="key", api_secret="secret", passphrase="passphrase",
+            base_url="https://bitget.test", client=http_client,
+        )
+        with pytest.raises(BitgetReadOnlyError) as caught:
+            await bitget.verify_read_only_key()
+
+    assert caught.value.status_code == 403
+    assert caught.value.reason_code == "bitget_http_403"
+    assert secret_marker not in str(caught.value)
+
+
+def test_registry_supports_bitget_read_only_provider() -> None:
+    from packages.exchanges.bitget import BitgetReadOnlyClient
+
+    assert isinstance(build_account_client("bitget"), BitgetReadOnlyClient)
