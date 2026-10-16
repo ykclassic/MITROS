@@ -112,8 +112,9 @@ async def test_bybit_http_error_exposes_only_sanitized_status_and_reason_code() 
 
 
 
+
 @pytest.mark.asyncio
-async def test_bitget_adapter_signs_read_only_requests_and_parses_spot_assets() -> None:
+async def test_bitget_adapter_signs_read_only_requests_and_parses_uta_assets() -> None:
     from packages.exchanges.bitget import BitgetReadOnlyClient
 
     calls: list[httpx.Request] = []
@@ -121,22 +122,25 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_spot_assets() 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         assert request.method == "GET"
-        if request.url.path == "/api/v2/spot/account/info":
+        if request.url.path == "/api/v3/account/info":
             assert request.headers.get("ACCESS-KEY") == "bitget-test-key"
             assert request.headers.get("ACCESS-SIGN")
             assert request.headers.get("ACCESS-TIMESTAMP")
             assert request.headers.get("ACCESS-PASSPHRASE") == "bitget-test-passphrase"
             return httpx.Response(200, json={
                 "code": "00000", "requestTime": 1791840000000,
-                "data": {"authorities": ["coor", "cpor"]},
+                "data": {"permType": "readonly", "permissions": ["uta_mgt"]},
             })
-        if request.url.path == "/api/v2/spot/account/assets":
+        if request.url.path == "/api/v3/account/assets":
             return httpx.Response(200, json={
                 "code": "00000", "requestTime": 1791840000000,
-                "data": [
-                    {"coin": "BTC", "available": "0.01", "frozen": "0", "locked": "0"},
-                    {"coin": "USDT", "available": "650", "frozen": "10", "locked": "0"},
-                ],
+                "data": {
+                    "btcEquity": "0.02", "usdtEquity": "1300",
+                    "assets": [
+                        {"coin": "BTC", "equity": "0.01", "usdValue": "650", "available": "0.01", "locked": "0"},
+                        {"coin": "USDT", "equity": "650", "usdValue": "650", "available": "640", "locked": "10"},
+                    ],
+                },
             })
         if request.url.path == "/api/v2/spot/market/tickers":
             return httpx.Response(200, json={
@@ -158,23 +162,24 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_spot_assets() 
         ticker = await bitget.market_ticker("BTC/USDT")
 
     assert account.provider == "bitget"
-    assert account.account_type == "spot"
+    assert account.account_type == "unified"
     assert account.observed_at_ms == 1791840000000
-    assert account.total_btc_value == Decimal("0.01") + Decimal("660") / Decimal("65000")
+    assert account.total_btc_value == Decimal("0.02")
     assert len(account.balances) == 2
     assert account.balances[1].frozen == Decimal("10")
+    assert account.balances[1].btc_value == Decimal("650") / Decimal("65000")
     assert ticker["last"] == Decimal("65000")
     assert all(request.method == "GET" for request in calls)
 
 
 @pytest.mark.asyncio
-async def test_bitget_adapter_rejects_write_permissions() -> None:
+async def test_bitget_adapter_rejects_non_read_only_permissions() -> None:
     from packages.exchanges.bitget import BitgetReadOnlyClient, BitgetReadOnlyError
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={
             "code": "00000", "requestTime": 1791840000000,
-            "data": {"authorities": ["coor", "stow"]},
+            "data": {"permType": "read_and_write", "permissions": ["uta_mgt", "uta_trade"]},
         })
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
@@ -185,7 +190,7 @@ async def test_bitget_adapter_rejects_write_permissions() -> None:
         with pytest.raises(BitgetReadOnlyError) as caught:
             await bitget.verify_read_only_key()
 
-    assert caught.value.reason_code == "bitget_write_permissions_detected"
+    assert caught.value.reason_code == "bitget_key_not_read_only"
 
 
 @pytest.mark.asyncio
