@@ -46,9 +46,19 @@ jobs:
           pr_branch="$(jq -r '.head.ref' <<<"$pr_json")"
           pr_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
           pr_sha="$(jq -r '.head.sha' <<<"$pr_json")"
-          if [[ "$pr_state" != "open" || "$pr_merged" != "false" ]]; then
-            echo "::error::PR #74 must remain open and unmerged."
-            exit 1
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Manual dispatch is intentionally post-merge only: it verifies that the exact
+            # immutable PR head still matches the merged PR record.
+            if [[ "$pr_state" != "closed" || "$pr_merged" != "true" ]]; then
+              echo "::error::workflow_dispatch requires PR #74 to be merged and closed."
+              exit 1
+            fi
+          else
+            # PR-triggered verification is allowed only while the candidate is open/unmerged.
+            if [[ "$pr_state" != "open" || "$pr_merged" != "false" ]]; then
+              echo "::error::Pull-request verification requires PR #74 to remain open and unmerged."
+              exit 1
+            fi
           fi
           if [[ "$pr_branch" != "phase/phase4-bybit-reconciled" || "$pr_repo" != "ykclassic/MITROS" ]]; then
             echo "::error::PR #74 does not point to the authorized candidate branch."
@@ -58,7 +68,7 @@ jobs:
             echo "::error::Candidate SHA does not match the current PR #74 head."
             exit 1
           fi
-          echo "Candidate SHA verified against the current unmerged PR #74 head."
+          echo "Candidate SHA verified against the current PR #74 head and event state."
 
       - name: Check out validated candidate
         uses: actions/checkout@v4
@@ -153,4 +163,5 @@ jobs:
           MITROS_BITGET_BASE_URL: ${{ vars.MITROS_BITGET_BASE_URL }}
           MITROS_BITGET_MAX_SNAPSHOT_AGE_SECONDS: "60"
           MITROS_XT_LIVE_ORDERS_ENABLED: "false"
+          MITROS_LIVE_TRADING_ENABLED: "false"
         run: python scripts/verify_bitget_readonly.py
