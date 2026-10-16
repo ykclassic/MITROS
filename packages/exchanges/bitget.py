@@ -32,11 +32,7 @@ class BitgetReadOnlyError(AccountProviderError):
 
 
 class BitgetReadOnlyClient:
-    """Bitget Classic Spot read-only adapter. All exchange requests are GET-only."""
-
-    WRITE_AUTHORITIES = frozenset(
-        {"stow", "smow", "coow", "cpow", "ttow", "wtow", "wwow", "chow", "p2p", "pllw", "taxw"}
-    )
+    """Bitget Unified Trading Account (UTA) read-only adapter; requests are GET-only."""
 
     def __init__(
         self,
@@ -127,19 +123,26 @@ class BitgetReadOnlyClient:
                 "Bitget API credentials are not configured",
                 reason_code="bitget_credentials_missing",
             )
-        payload = await self._get("/api/v2/spot/account/info", authenticated=True)
+        payload = await self._get("/api/v3/account/info", authenticated=True)
         data = payload["data"]
         if not isinstance(data, dict):
             raise BitgetReadOnlyError("Bitget account information is invalid")
-        authorities = data.get("authorities")
-        if not isinstance(authorities, list):
+        permission_type = str(data.get("permType", "")).lower().replace("_", "-")
+        if permission_type not in {"readonly", "read-only"}:
             raise BitgetReadOnlyError(
-                "Bitget account permissions could not be verified",
+                "Bitget API key is not explicitly read-only",
+                reason_code="bitget_key_not_read_only",
+            )
+        permissions = data.get("permissions")
+        if not isinstance(permissions, list):
+            raise BitgetReadOnlyError(
+                "Bitget API permissions could not be verified",
                 reason_code="bitget_permissions_unverifiable",
             )
-        if any(str(authority).lower() in self.WRITE_AUTHORITIES for authority in authorities):
+        forbidden = {"uta_trade", "withdraw", "copy_futures_position", "copy_futures_order"}
+        if any(str(permission).lower() in forbidden for permission in permissions):
             raise BitgetReadOnlyError(
-                "Bitget API key includes write permissions",
+                "Bitget API key includes non-read-only permissions",
                 reason_code="bitget_write_permissions_detected",
             )
 
@@ -173,59 +176,52 @@ class BitgetReadOnlyClient:
 
     async def account_snapshot(self) -> AccountSnapshot:
         await self.verify_read_only_key()
-        payload = await self._get(
-            "/api/v2/spot/account/assets", {"assetType": "all"}, authenticated=True
-        )
-        rows = payload["data"]
-        if not isinstance(rows, list):
-            raise BitgetReadOnlyError("Bitget spot assets response is invalid")
+        payload = await self._get("/api/v3/account/assets", authenticated=True)
+        data = payload["data"]
+        if not isinstance(data, dict):
+            raise BitgetReadOnlyError("Bitget UTA assets response is invalid")
         observed_at_ms = int(payload.get("_response_time_ms", 0))
         if observed_at_ms <= 0:
             raise BitgetReadOnlyError("Bitget account observation timestamp is missing")
-        btc_price = await self.btc_usdt_price()
+        try:
+            total_btc_value = Decimal(str(data["btcEquity"]))
+            rows = data["assets"]
+            if not isinstance(rows, list):
+                raise TypeError("asset list is invalid")
+        except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
+            raise BitgetReadOnlyError("Bitget UTA equity response contains invalid fields") from exc
         balances: list[AccountBalance] = []
-        total_btc_value = Decimal("0")
         for row in rows:
             if not isinstance(row, dict):
-                raise BitgetReadOnlyError("Bitget spot asset entry is invalid")
+                raise BitgetReadOnlyError("Bitget UTA asset entry is invalid")
             try:
                 currency = str(row["coin"]).upper()
                 available = Decimal(str(row.get("available", "0")))
-                frozen = Decimal(str(row.get("frozen", "0")))
+                total = Decimal(str(row["equity"]))
+                usd_value = Decimal(str(row["usdValue"]))
                 locked = Decimal(str(row.get("locked", "0")))
-                total = available + frozen + locked
-                if min(available, frozen, locked) < 0:
+                btc_value = total if currency == "BTC" else usd_value / Decimal(
+                    str(data["usdtEquity"])
+                ) * Decimal(str(data["btcEquity"])) if Decimal(str(data["usdtEquity"])) > 0 else Decimal("0")
+                if min(available, total, usd_value, locked) < 0:
                     raise ValueError("negative balance")
-            except (KeyError, InvalidOperation, TypeError, ValueError) as exc:
-                raise BitgetReadOnlyError("Bitget spot asset contains invalid balances") from exc
-            if total == 0:
-                continue
-            if currency == "BTC":
-                btc_value = total
-            elif currency in {"USDT", "USDC", "USD"}:
-                btc_value = total / btc_price
-            else:
-                ticker = await self.market_ticker(f"{currency}/USDT")
-                price = ticker["last"]
-                if not isinstance(price, Decimal) or price <= 0:
-                    raise BitgetReadOnlyError("Bitget asset valuation price is invalid")
-                btc_value = total * price / btc_price
-            total_btc_value += btc_value
+            except (KeyError, InvalidOperation, TypeError, ValueError, ZeroDivisionError) as exc:
+                raise BitgetReadOnlyError("Bitget UTA asset contains invalid balances") from exc
             balances.append(
                 AccountBalance(
                     currency=currency,
                     available=available,
-                    frozen=frozen + locked,
+                    frozen=locked,
                     total=total,
                     btc_value=btc_value,
                 )
             )
         if not balances or total_btc_value <= 0:
-            raise BitgetReadOnlyError("Bitget account has no positive valued spot assets")
+            raise BitgetReadOnlyError("Bitget account has no positive valued UTA assets")
         return AccountSnapshot(
             observed_at_ms=observed_at_ms,
             total_btc_value=total_btc_value,
             balances=tuple(balances),
             provider="bitget",
-            account_type="spot",
+            account_type="unified",
         )
