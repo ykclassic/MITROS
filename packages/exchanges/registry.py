@@ -1,19 +1,30 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
+from packages.exchanges.bitget import BitgetReadOnlyClient
+from packages.exchanges.bybit import BybitReadOnlyClient
+from packages.exchanges.simulated import SimulatedAccountClient
 from packages.exchanges.xt import XTSpotClient
 
 
-SUPPORTED_ACCOUNT_EXCHANGES = ("xt.com",)
+SUPPORTED_ACCOUNT_EXCHANGES = ("xt.com", "bybit", "bitget", "simulated")
 
 
-def build_account_client(exchange: str | None = None) -> XTSpotClient:
-    """Resolve the authoritative account adapter through a future-selectable registry."""
+def build_account_client(exchange: str | None = None) -> Any:
+    """Build the selected read-only account adapter; simulation is verification-gated."""
     selected_value = exchange if exchange is not None else os.getenv("MITROS_ACCOUNT_EXCHANGE")
-    if not selected_value:
-        selected_value = "xt.com"
-    selected = selected_value.strip().lower()
-    if selected != "xt.com":
-        raise ValueError(f"Unsupported account exchange: {selected}")
-    return XTSpotClient()
+    selected = (selected_value or "xt.com").strip().lower()
+    if selected == "xt.com":
+        return XTSpotClient()
+    if selected == "bybit":
+        return BybitReadOnlyClient()
+    if selected == "bitget":
+        return BitgetReadOnlyClient()
+    if selected == "simulated":
+        client = SimulatedAccountClient()
+        if not client.configured:
+            raise ValueError("Simulated account provider is disabled outside verification environments")
+        return client
+    raise ValueError(f"Unsupported account exchange: {selected}")

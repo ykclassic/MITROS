@@ -1,0 +1,53 @@
+name: Phase 4 Readiness Diagnostics Tests
+
+on:
+  push:
+    branches:
+      - fix/safe-phase4-readiness-diagnostics
+      - feat/phase4-simulated-bybit-readonly
+  pull_request:
+    branches:
+      - main
+      - phase/risk-management-trade-proposals
+    paths:
+      - "packages/api/app.py"
+      - "packages/exchanges/base.py"
+      - "packages/exchanges/bybit.py"
+      - "packages/exchanges/simulated.py"
+      - "packages/exchanges/registry.py"
+      - "packages/exchanges/models.py"
+      - "packages/exchanges/xt.py"
+      - "packages/risk/account_state.py"
+      - "tests/unit/test_account_providers.py"
+      - "tests/unit/test_phase4_api_guard.py"
+      - "tests/unit/test_market_data.py"
+      - "tests/unit/test_provider_replacement.py"
+      - "tests/unit/test_xt_account.py"
+      - ".github/workflows/phase4-readiness-diagnostics.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  phase4-readiness-diagnostics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Run targeted regression tests
+        run: >-
+          python -m pytest
+          tests/unit/test_market_data.py
+          tests/unit/test_provider_replacement.py
+          tests/unit/test_xt_account.py
+          tests/unit/test_account_providers.py
+          tests/unit/test_phase4_api_guard.py
+          -q

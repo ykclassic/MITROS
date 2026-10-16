@@ -1,0 +1,167 @@
+name: Authenticated Bitget Read-Only Smoke Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_commit_sha:
+        description: "Exact current head SHA of PR #74 to verify"
+        required: true
+        type: string
+  # On an unmerged PR, this event is the supported way to run the protected check.
+  # GitHub's manual Run workflow button is available only after this workflow exists on the default branch.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: mitros-bitget-readonly-verification
+  cancel-in-progress: false
+
+jobs:
+  bitget-smoke-verification:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 74
+    name: Protected Bitget Read-Only Verification
+    runs-on: ubuntu-latest
+    env:
+      CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit_sha || github.event.pull_request.head.sha }}
+    timeout-minutes: 10
+    environment: production-verification
+    steps:
+      - name: Validate exact PR #74 candidate SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$CANDIDATE_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::Candidate must be a full 40-character commit SHA."
+            exit 1
+          fi
+          pr_json="$(gh api repos/ykclassic/MITROS/pulls/74)"
+          pr_state="$(jq -r '.state' <<<"$pr_json")"
+          pr_merged="$(jq -r '.merged' <<<"$pr_json")"
+          pr_branch="$(jq -r '.head.ref' <<<"$pr_json")"
+          pr_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
+          pr_sha="$(jq -r '.head.sha' <<<"$pr_json")"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            # Manual dispatch is intentionally post-merge only: it verifies that the exact
+            # immutable PR head still matches the merged PR record.
+            if [[ "$pr_state" != "closed" || "$pr_merged" != "true" ]]; then
+              echo "::error::workflow_dispatch requires PR #74 to be merged and closed."
+              exit 1
+            fi
+          else
+            # PR-triggered verification is allowed only while the candidate is open/unmerged.
+            if [[ "$pr_state" != "open" || "$pr_merged" != "false" ]]; then
+              echo "::error::Pull-request verification requires PR #74 to remain open and unmerged."
+              exit 1
+            fi
+          fi
+          if [[ "$pr_branch" != "phase/phase4-bybit-reconciled" || "$pr_repo" != "ykclassic/MITROS" ]]; then
+            echo "::error::PR #74 does not point to the authorized candidate branch."
+            exit 1
+          fi
+          if [[ "${CANDIDATE_SHA,,}" != "${pr_sha,,}" ]]; then
+            echo "::error::Candidate SHA does not match the current PR #74 head."
+            exit 1
+          fi
+          echo "Candidate SHA verified against the current PR #74 head and event state."
+
+      - name: Check out validated candidate
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "${actual_sha,,}" != "${CANDIDATE_SHA,,}" ]]; then
+            echo "::error::Checked-out commit does not match the requested candidate."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project dependencies
+        run: python -m pip install -e ".[dev]"
+
+      - name: Validate Bitget adapter uses Classic v2 endpoints
+        run: |
+          set -euo pipefail
+          adapter="packages/exchanges/bitget.py"
+          if [[ ! -f "$adapter" ]]; then
+            echo "::error::Bitget read-only adapter not found at $adapter."
+            exit 1
+          fi
+          # Required Classic v2 spot endpoints for a v2-model API key.
+          required_paths=(
+            "/api/v2/spot/account/info"
+            "/api/v2/spot/account/assets"
+          )
+          # Endpoints that belong to the Unified Trading Account (UTA) model.
+          # Calling these with a v2 key returns 40084.
+          forbidden_paths=(
+            "/api/v3/account/info"
+            "/api/v3/account/assets"
+          )
+          for path in "${required_paths[@]}"; do
+            if ! grep -q -- "$path" "$adapter"; then
+              echo "::error::Adapter is missing required Classic v2 endpoint: $path"
+              exit 1
+            fi
+          done
+          for path in "${forbidden_paths[@]}"; do
+            if grep -q -- "$path" "$adapter"; then
+              echo "::error::Adapter still references UTA endpoint $path, which causes 40084 with a v2 key."
+              exit 1
+            fi
+          done
+          echo "Adapter is confirmed to use Classic v2 spot endpoints only."
+
+      - name: Validate credential presence without disclosure
+        env:
+          MITROS_BITGET_API_KEY: ${{ secrets.MITROS_BITGET_API_KEY }}
+          MITROS_BITGET_API_SECRET: ${{ secrets.MITROS_BITGET_API_SECRET }}
+          MITROS_BITGET_API_PASSPHRASE: ${{ secrets.MITROS_BITGET_API_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import sys
+          names = ("MITROS_BITGET_API_KEY", "MITROS_BITGET_API_SECRET", "MITROS_BITGET_API_PASSPHRASE")
+          if any(not os.getenv(name, "").strip() for name in names):
+              print("::error::Required Bitget credentials are not configured in the protected environment.")
+              sys.exit(1)
+          print("Bitget credential presence check passed; values were not logged.")
+          PY
+
+      - name: Capture runner public egress IP
+        run: |
+          set -euo pipefail
+          egress_ip="$(curl --fail --silent --show-error --max-time 10 https://api.ipify.org)"
+          if [[ ! "$egress_ip" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+            echo "::error::Could not validate runner public IPv4 egress address."
+            exit 1
+          fi
+          echo "Runner public egress IPv4: $egress_ip"
+          echo "If the Bitget key uses IP binding, allow this address in the key's IP allowlist."
+          echo "No API credentials are accessed by this step."
+
+      - name: Run authenticated read-only verification
+        env:
+          MITROS_BITGET_API_KEY: ${{ secrets.MITROS_BITGET_API_KEY }}
+          MITROS_BITGET_API_SECRET: ${{ secrets.MITROS_BITGET_API_SECRET }}
+          MITROS_BITGET_API_PASSPHRASE: ${{ secrets.MITROS_BITGET_API_PASSPHRASE }}
+          MITROS_BITGET_BASE_URL: ${{ vars.MITROS_BITGET_BASE_URL }}
+          MITROS_BITGET_MAX_SNAPSHOT_AGE_SECONDS: "60"
+          MITROS_XT_LIVE_ORDERS_ENABLED: "false"
+          MITROS_LIVE_TRADING_ENABLED: "false"
+        run: python scripts/verify_bitget_readonly.py

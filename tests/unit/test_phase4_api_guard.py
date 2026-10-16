@@ -1,3 +1,5 @@
+import pytest
+
 from fastapi.testclient import TestClient
 
 from packages.api.app import app
@@ -85,7 +87,7 @@ def test_phase4_requires_xt_credentials_before_any_risk_decision(monkeypatch) ->
         monkeypatch.setenv(key, value)
     response = _post(INTENT)
     assert response.status_code == 503
-    assert "XT account state" in response.json()["detail"]
+    assert "Account provider state" in response.json()["detail"]
 
 
 
@@ -357,3 +359,155 @@ def test_phase4_readiness_reports_missing_xt_and_database_without_exposing_secre
     assert payload["checks"]["xt_credentials_configured"] is False
     assert payload["checks"]["live_trading_disabled"] is True
     assert "MITROS_XT_API_SECRET" not in response.text
+
+
+
+def test_phase4_readiness_xt_diagnostic_is_sanitized_and_does_not_change_gates(monkeypatch, caplog) -> None:
+    import logging
+
+    from packages.api import app as api_module
+    from packages.exchanges.xt import XTSpotError
+
+    secret_marker = "XT_PRIVATE_SECRET_MARKER"
+    class FakeXT:
+        configured = True
+
+        async def account_snapshot(self):
+            raise XTSpotError(f"authorization signature {secret_marker}")
+
+        async def btc_usdt_price(self):
+            raise AssertionError("price check must not run after account failure")
+
+    monkeypatch.delenv("MITROS_DATABASE_URL", raising=False)
+    monkeypatch.setenv("MITROS_XT_API_KEY", "configured-key-marker")
+    monkeypatch.setenv("MITROS_XT_API_SECRET", secret_marker)
+    monkeypatch.setattr(api_module, "build_account_client", lambda: FakeXT())
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        with caplog.at_level(logging.WARNING, logger="mitros.api"):
+            response = TestClient(app).get("/api/v1/risk/phase4/readiness")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["ready"] is False
+    assert payload["checks"]["xt_read_only_connection"] is False
+    assert payload["checks"]["live_trading_disabled"] is True
+    assert payload["live_trading_enabled"] is False
+    assert payload["diagnostics"]["xt_read_only_connection"] == "account_snapshot_failed"
+    assert secret_marker not in response.text
+    assert secret_marker not in caplog.text
+    assert "configured-key-marker" not in caplog.text
+
+
+def test_phase4_readiness_market_data_diagnostic_is_sanitized_and_fail_closed(monkeypatch, caplog) -> None:
+    import logging
+
+    from packages.api import app as api_module
+
+    secret_marker = "MARKET_DATA_PRIVATE_TOKEN_MARKER"
+
+    class FakeCursor:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def execute(self, _query):
+            return None
+
+        async def fetchone(self):
+            return (True, True, True, True, True)
+
+    class FakeConnection:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        def cursor(self):
+            return FakeCursor()
+
+    async def fake_connect(_database_url):
+        return FakeConnection()
+
+    class FakeMarketDataService:
+        async def candles(self, _request):
+            raise RuntimeError(f"Authorization: Bearer {secret_marker}")
+
+    async def fake_build_verified_service():
+        return FakeMarketDataService()
+
+    monkeypatch.setenv("MITROS_DATABASE_URL", "postgresql://test.invalid/mitros")
+    monkeypatch.delenv("MITROS_XT_API_KEY", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_SECRET", raising=False)
+    monkeypatch.setattr(api_module.psycopg.AsyncConnection, "connect", staticmethod(fake_connect))
+    monkeypatch.setattr(api_module, "build_account_client", lambda: (_ for _ in ()).throw(ValueError("not configured")))
+    monkeypatch.setattr(api_module, "build_verified_service", fake_build_verified_service)
+
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        with caplog.at_level(logging.WARNING, logger="mitros.api"):
+            response = TestClient(app).get("/api/v1/risk/phase4/readiness")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["ready"] is False
+    assert payload["checks"]["verified_market_data"] is False
+    assert payload["checks"]["live_trading_disabled"] is True
+    assert payload["live_trading_enabled"] is False
+    assert payload["diagnostics"]["verified_market_data"] == "market_data_unavailable"
+    assert secret_marker not in response.text
+    assert secret_marker not in caplog.text
+    assert "Authorization:" not in caplog.text
+    assert "postgresql://test.invalid" not in caplog.text
+
+
+def test_phase4_readiness_uses_simulated_provider_without_xt_credentials(monkeypatch) -> None:
+    monkeypatch.setenv("MITROS_ACCOUNT_EXCHANGE", "simulated")
+    monkeypatch.setenv("MITROS_PHASE4_SIMULATED_ACCOUNT_ENABLED", "true")
+    monkeypatch.setenv("MITROS_ENVIRONMENT", "verification")
+    monkeypatch.delenv("MITROS_DATABASE_URL", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_KEY", raising=False)
+    monkeypatch.delenv("MITROS_XT_API_SECRET", raising=False)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        response = TestClient(app).get("/api/v1/risk/phase4/readiness")
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["checks"]["account_provider_configured"] is True
+    assert payload["checks"]["account_provider_read_only_connection"] is True
+    assert "xt_read_only_connection" not in payload["checks"]
+    assert "xt_credentials_configured" not in payload["checks"]
+    assert payload["checks"]["live_trading_disabled"] is True
+    assert payload["live_trading_enabled"] is False
+    assert payload["ready"] is False
+
+
+@pytest.mark.parametrize("provider", ["simulated", "bybit"])
+def test_non_xt_account_provider_cannot_issue_approval_or_execute(monkeypatch, provider) -> None:
+    monkeypatch.setenv("MITROS_ACCOUNT_EXCHANGE", provider)
+    app.dependency_overrides[require_user] = lambda: TEST_USER
+    try:
+        client = TestClient(app)
+        approval = client.post(
+            "/api/v1/proposals/00000000-0000-0000-0000-000000000123/approve",
+            json={"reason": "verification", "idempotency_key": "nonxt-approval-key"},
+        )
+        execution = client.post(
+            "/api/v1/proposals/00000000-0000-0000-0000-000000000123/execute",
+            json={"approval_token": "not-a-valid-token"},
+        )
+    finally:
+        app.dependency_overrides.pop(require_user, None)
+    assert approval.status_code == 409
+    assert "disabled" in approval.json()["detail"]
+    assert execution.status_code == 409
+    assert "disabled" in execution.json()["detail"]
