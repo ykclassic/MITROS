@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from packages.exchanges.bitget import BitgetReadOnlyClient
 from packages.exchanges.bybit import BybitReadOnlyClient
 from packages.exchanges.simulated import SimulatedAccountClient
 from packages.exchanges.xt import XTSpotClient
 
 
-SUPPORTED_ACCOUNT_EXCHANGES = ("xt.com", "bybit", "simulated")
+SUPPORTED_ACCOUNT_EXCHANGES = ("xt.com", "bybit", "bitget", "simulated")
 
 
 def build_account_client(exchange: str | None = None) -> Any:
@@ -19,6 +20,8 @@ def build_account_client(exchange: str | None = None) -> Any:
         return XTSpotClient()
     if selected == "bybit":
         return BybitReadOnlyClient()
+    if selected == "bitget":
+        return BitgetReadOnlyClient()
     if selected == "simulated":
         client = SimulatedAccountClient()
         if not client.configured:
