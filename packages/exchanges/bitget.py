@@ -66,7 +66,7 @@ class BitgetReadOnlyClient:
     ) -> dict[str, Any]:
         ordered = dict(sorted((params or {}).items()))
         query = urlencode(ordered)
-        headers: dict[str, str] = {"Accept": "application/json"}
+        headers: dict[str, str] = {"Accept": "application/json", "Content-Type": "application/json", "locale": "en-US"}
         if authenticated:
             if not self.configured:
                 raise BitgetReadOnlyError(
@@ -96,10 +96,35 @@ class BitgetReadOnlyClient:
             payload = response.json()
         except httpx.HTTPStatusError as exc:
             status_code = exc.response.status_code
+            # Bitget returns structured error codes in HTTP error bodies. Extract only
+            # an allowlisted code; never log or include the raw response/message.
+            reason_by_api_code = {
+                "40001": "bitget_api_key_missing",
+                "40002": "bitget_api_secret_missing",
+                "40003": "bitget_signature_missing",
+                "40005": "bitget_timestamp_invalid",
+                "40006": "bitget_api_key_invalid",
+                "40008": "bitget_timestamp_expired",
+                "40009": "bitget_signature_invalid",
+                "40011": "bitget_passphrase_missing",
+                "40012": "bitget_passphrase_invalid",
+                "40017": "bitget_parameter_validation_failed",
+                "40034": "bitget_parameter_unknown",
+            }
+            api_code = ""
+            try:
+                error_payload = exc.response.json()
+                if isinstance(error_payload, dict):
+                    candidate = error_payload.get("code")
+                    if isinstance(candidate, (str, int)):
+                        api_code = str(candidate)
+            except ValueError:
+                pass
+            reason_code = reason_by_api_code.get(api_code, f"bitget_http_{status_code}")
             raise BitgetReadOnlyError(
                 f"Bitget HTTP request failed with status {status_code}",
                 status_code=status_code,
-                reason_code=f"bitget_http_{status_code}",
+                reason_code=reason_code,
             ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise BitgetReadOnlyError(
