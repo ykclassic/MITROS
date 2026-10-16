@@ -4,7 +4,7 @@
 
 - PR #74 must remain open and unmerged until every required CI job and the controlled authenticated verification are explicitly successful.
 - The existing Render service and production Supabase project are outside the scope of these checks and must not be changed.
-- Keep `MITROS_XT_LIVE_ORDERS_ENABLED=false`. The Bybit adapter is GET-only and cannot submit orders.
+- Keep `MITROS_XT_LIVE_ORDERS_ENABLED=false` and `MITROS_LIVE_TRADING_ENABLED=false`. The Bitget adapter is GET-only and cannot submit orders.
 - Do not expose credentials, authorization headers, signatures, response bodies, or secret-bearing exception text in logs.
 
 ## Provider selection
@@ -13,9 +13,26 @@ Set `MITROS_ACCOUNT_EXCHANGE` to one of:
 
 - `xt.com`: the existing XT account adapter and current execution venue.
 - `bybit`: the Bybit V5 read-only account adapter.
+- `bitget`: the Bitget Classic Spot read-only account adapter.
 - `simulated`: deterministic fixtures only on an explicitly permitted non-production verification/development environment.
 
-Bybit requires `MITROS_BYBIT_API_KEY` and `MITROS_BYBIT_API_SECRET`. The optional `MITROS_BYBIT_BASE_URL` defaults to `https://api.bybit.com`. Use an exchange key with read-only permissions and no order, transfer, or withdrawal permissions. The native adapter calls the API-key information endpoint and requires `readOnly=1`.
+Bitget verification requires `MITROS_BITGET_API_KEY`, `MITROS_BITGET_API_SECRET`, and `MITROS_BITGET_API_PASSPHRASE`. The optional `MITROS_BITGET_BASE_URL` defaults to `https://api.bitget.com`. Create a dedicated API key with read-only permissions and no trade, transfer, or withdrawal permissions. Bitget recommends IP binding; GitHub-hosted runner egress IPs may change, so use a stable, controlled runner or carefully managed allowlist if IP binding is enabled.
+
+The adapter signs GET requests using Bitget's documented HMAC-SHA256/Base64 scheme, queries account permission metadata, rejects reported write authorities, fetches spot assets, and uses public spot tickers to value non-USDT balances in BTC. Unsupported/unpriceable non-zero assets fail closed rather than silently disappearing from the account valuation. API failures expose only sanitized reason codes and HTTP status, never response bodies or credential material.
+
+Bitget API access is not guaranteed from every server or region. The protected authenticated smoke test is the evidence required for the actual runner environment; public market-data access alone does not establish authenticated account access.
+
+## Authenticated Bitget smoke test
+
+The `Authenticated Bitget Read-Only Smoke Test` workflow verifies the exact current head SHA of PR #74, checks the presence of credentials in the protected `production-verification` environment without logging values, records the runner's public egress IP, and runs `scripts/verify_bitget_readonly.py`.
+
+The verification checks:
+
+1. The authenticated account-info endpoint responds and does not report known write authorities.
+2. The account snapshot is positive and fresh.
+3. The BTC/USDT ticker price is positive and its exchange observation timestamp is fresh.
+
+A successful smoke test proves Bitget read-only connectivity only. It does not prove full Phase 4 readiness or authorize approval/execution; verified market data, risk audit, proposal lifecycle and all other release gates remain independent.
 
 ## Isolated PostgreSQL integration tests
 
@@ -28,16 +45,6 @@ The CI job provisions an ephemeral PostgreSQL service with a database named `mit
 - `20261010200000_0013_phase4_xt_protection_monitor.sql`
 
 The integration test guard refuses non-local hosts and database names without `mitros_test`. The tests verify snapshot persistence/read-back and durable rejected-risk audit persistence without creating a trade proposal. They do not connect to production.
-
-## Authenticated Bybit smoke test
-
-The `Authenticated Bybit Read-Only Smoke Test` workflow is manually dispatched with the exact current head SHA of PR #74. Before checking out or running the candidate, it confirms that PR #74 is still open/unmerged, originates from `phase/phase4-bybit-reconciled` in `ykclassic/MITROS`, and has the requested SHA as its current head. A protected `production-verification` environment must contain the Bybit read-only credentials. The verification checks:
-
-1. Native adapter confirms the API key's `readOnly=1` status.
-2. An authenticated account snapshot is positive and fresh.
-3. The BTC/USDT ticker price is positive and its exchange observation timestamp is fresh.
-
-A successful smoke test proves Bybit read-only connectivity only. It does not prove full Phase 4 readiness or authorize approval/execution; verified market data, risk audit, proposal lifecycle and all other release gates remain independent.
 
 ## Release posture
 
