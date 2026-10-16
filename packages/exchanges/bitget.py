@@ -120,7 +120,7 @@ class BitgetReadOnlyClient:
                         api_code = str(candidate)
             except ValueError:
                 pass
-            reason_code = reason_by_api_code.get(api_code, f"bitget_http_{status_code}")
+            reason_code = reason_by_api_code.get(api_code, f"bitget_api_code_{api_code}" if api_code.isdigit() else f"bitget_http_{status_code}")
             raise BitgetReadOnlyError(
                 f"Bitget HTTP request failed with status {status_code}",
                 status_code=status_code,
