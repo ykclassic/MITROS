@@ -139,8 +139,14 @@ class BitgetReadOnlyClient:
                 "Bitget API permissions could not be verified",
                 reason_code="bitget_permissions_unverifiable",
             )
+        normalized_permissions = {str(permission).lower() for permission in permissions}
+        if "uta_mgt" not in normalized_permissions:
+            raise BitgetReadOnlyError(
+                "Bitget key lacks unified-account read permission",
+                reason_code="bitget_uta_read_permission_missing",
+            )
         forbidden = {"uta_trade", "withdraw", "copy_futures_position", "copy_futures_order"}
-        if any(str(permission).lower() in forbidden for permission in permissions):
+        if normalized_permissions.intersection(forbidden):
             raise BitgetReadOnlyError(
                 "Bitget API key includes non-read-only permissions",
                 reason_code="bitget_write_permissions_detected",
