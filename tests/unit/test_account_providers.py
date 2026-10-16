@@ -242,4 +242,4 @@ async def test_bitget_http_400_maps_documented_error_code_without_exposing_respo
     assert caught.value.status_code == 400
     assert caught.value.reason_code == "bitget_signature_invalid"
     assert secret_marker not in str(caught.value)
-\n
+
