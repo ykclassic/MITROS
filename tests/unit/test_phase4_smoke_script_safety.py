@@ -32,7 +32,6 @@ def test_phase4_smoke_database_session_is_server_enforced_read_only() -> None:
     assert 'options="-c default_transaction_read_only=on"' in source
 
 
-
 def test_phase4_smoke_has_hard_deployment_sha_gate_and_count_diagnostics() -> None:
     source = Path("scripts/run_phase4_smoke.py").read_text(encoding="utf-8")
     assert 'if deployed_sha != expected_sha:' in source
