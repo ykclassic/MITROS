@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       candidate_commit_sha:
-        description: "Exact 40-character commit SHA currently deployed to MITROS_BACKEND_URL"
-        required: true
+        description: "Exact deployed SHA; defaults to the main commit at dispatch time"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -23,7 +24,7 @@ jobs:
     timeout-minutes: 10
     environment: production-verification
     env:
-      CANDIDATE_SHA: ${{ inputs.candidate_commit_sha }}
+      CANDIDATE_SHA: ${{ inputs.candidate_commit_sha || github.sha }}
     steps:
       - name: Validate candidate SHA
         shell: bash
@@ -37,7 +38,7 @@ jobs:
       - name: Check out the exact deployed candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.candidate_commit_sha }}
+          ref: ${{ inputs.candidate_commit_sha || github.sha }}
           persist-credentials: false
 
       - name: Verify checked-out commit
@@ -67,5 +68,5 @@ jobs:
           MITROS_DATABASE_URL: ${{ secrets.MITROS_DATABASE_URL }}
           MITROS_BACKEND_URL: ${{ vars.MITROS_BACKEND_URL }}
           MITROS_EXPECTED_DB_NAME: ${{ vars.MITROS_EXPECTED_DB_NAME }}
-          MITROS_EXPECTED_DEPLOYED_SHA: ${{ inputs.candidate_commit_sha }}
+          MITROS_EXPECTED_DEPLOYED_SHA: ${{ inputs.candidate_commit_sha || github.sha }}
         run: python scripts/run_phase4_smoke.py
