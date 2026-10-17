@@ -37,7 +37,7 @@ jobs:
       - name: Check out the exact deployed candidate
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.CANDIDATE_SHA }}
+          ref: ${{ inputs.candidate_commit_sha }}
           persist-credentials: false
 
       - name: Verify checked-out commit
