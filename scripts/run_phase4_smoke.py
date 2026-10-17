@@ -96,40 +96,39 @@ def _verify_persistence(
         database_url,
         autocommit=True,
         options="-c default_transaction_read_only=on",
-    ) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_database(), current_user")
-            database_name, database_user = cursor.fetchone()
-            if database_name != expected_database:
-                raise RuntimeError("Connected database does not match MITROS_EXPECTED_DB_NAME")
+    ) as connection, connection.cursor() as cursor:
+        cursor.execute("SELECT current_database(), current_user")
+        database_name, database_user = cursor.fetchone()
+        if database_name != expected_database:
+            raise RuntimeError("Connected database does not match MITROS_EXPECTED_DB_NAME")
 
-            cursor.execute(
-                """
-                SELECT count(*)
-                FROM phase4_risk_decisions
-                WHERE id = %s::uuid AND proposal_id = %s AND idempotency_key = %s
-                """,
-                (audit_id, proposal_id, idempotency_key),
-            )
-            decision_count = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT count(*)
+            FROM phase4_risk_decisions
+            WHERE id = %s::uuid AND proposal_id = %s AND idempotency_key = %s
+            """,
+            (audit_id, proposal_id, idempotency_key),
+        )
+        decision_count = cursor.fetchone()[0]
 
-            cursor.execute(
-                "SELECT count(*) FROM phase4_portfolio_snapshots WHERE id = %s::uuid",
-                (snapshot_id,),
-            )
-            snapshot_count = cursor.fetchone()[0]
+        cursor.execute(
+            "SELECT count(*) FROM phase4_portfolio_snapshots WHERE id = %s::uuid",
+            (snapshot_id,),
+        )
+        snapshot_count = cursor.fetchone()[0]
 
-            cursor.execute(
-                """
-                SELECT count(*)
-                FROM system_events
-                WHERE event_type = 'RiskEvaluated'
-                  AND correlation_id = %s::uuid
-                  AND aggregate_id = %s::uuid
-                """,
-                (correlation_id, proposal_id),
-            )
-            event_count = cursor.fetchone()[0]
+        cursor.execute(
+            """
+            SELECT count(*)
+            FROM system_events
+            WHERE event_type = 'RiskEvaluated'
+              AND correlation_id = %s::uuid
+              AND aggregate_id = %s::uuid
+            """,
+            (correlation_id, proposal_id),
+        )
+        event_count = cursor.fetchone()[0]
 
     counts = {
         "decision": decision_count,
@@ -151,9 +150,12 @@ def main() -> int:
         raise SystemExit("MITROS_EXPECTED_DEPLOYED_SHA must be a full 40-character commit SHA")
 
     health = _json_request(f"{backend_url}/health")
-    deployed_sha = str(health.get("build_sha", "")).lower()
+    deployed_sha = str(health.get("build_sha", "")).lower() or "missing"
     if deployed_sha != expected_sha:
-        raise SystemExit("Deployed backend SHA does not match the requested candidate SHA")
+        raise SystemExit(
+            "Deployed backend SHA mismatch: "
+            f"requested_sha={expected_sha} deployed_sha={deployed_sha}"
+        )
 
     token = obtain_access_token()
     auth_headers = {"Authorization": f"Bearer {token}"}
@@ -212,7 +214,9 @@ def main() -> int:
             audit_id=audit_id,
             snapshot_id=snapshot_id,
         )
-    except (psycopg.Error, RuntimeError, TypeError) as exc:
+    except RuntimeError as exc:
+        raise SystemExit(f"Phase 4 persistence verification failed: {exc}") from None
+    except (psycopg.Error, TypeError) as exc:
         # Do not serialize database exceptions; drivers can include connection details.
         category = "database_error" if isinstance(exc, psycopg.Error) else "verification_failed"
         raise SystemExit(f"Phase 4 persistence verification failed ({category})") from None
