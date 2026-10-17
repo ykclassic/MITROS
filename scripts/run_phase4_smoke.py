@@ -45,7 +45,7 @@ def _json_request(
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         raise RuntimeError("HTTP request failed due to transport or invalid JSON") from None
     if not isinstance(decoded, dict):
-        raise RuntimeError("HTTP request returned an unexpected JSON shape")
+        raise TypeError("HTTP request returned an unexpected JSON shape")
     return decoded
 
 
