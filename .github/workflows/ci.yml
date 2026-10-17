@@ -1,5 +1,6 @@
 name: MITROS CI
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main]
   push:
@@ -28,7 +29,7 @@ jobs:
       - run: npm install
       - run: npm run build
   deployment-e2e:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     needs: [python, frontend]
     steps:
@@ -37,6 +38,50 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "pytest>=8.3,<9"
+      - name: Validate production E2E authentication configuration
+        env:
+          MITROS_E2E_SUPABASE_URL: ${{ secrets.MITROS_E2E_SUPABASE_URL }}
+          MITROS_E2E_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.MITROS_E2E_SUPABASE_PUBLISHABLE_KEY }}
+          MITROS_E2E_USER_EMAIL: ${{ secrets.MITROS_E2E_USER_EMAIL }}
+          MITROS_E2E_USER_PASSWORD: ${{ secrets.MITROS_E2E_USER_PASSWORD }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import sys
+
+          required = (
+              "MITROS_E2E_SUPABASE_URL",
+              "MITROS_E2E_SUPABASE_PUBLISHABLE_KEY",
+              "MITROS_E2E_USER_EMAIL",
+              "MITROS_E2E_USER_PASSWORD",
+          )
+          missing = [name for name in required if not os.getenv(name, "").strip()]
+          if missing:
+              print(
+                  "::error::Production E2E authentication configuration is incomplete; "
+                  "missing secret(s): " + ", ".join(missing)
+              )
+              sys.exit(1)
+          print(
+              "Production E2E authentication configuration is present; "
+              "secret values were not logged. The runner will obtain a fresh "
+              "Supabase session token in memory."
+          )
+          PY
+      - name: Probe Coinbase public API reachability
+        run: |
+          set -euo pipefail
+          url="https://api.coinbase.com/api/v3/brokerage/market/products/BTC-USD"
+          if ! http_code="$(curl --silent --show-error --connect-timeout 4 --max-time 10 --output /dev/null --write-out '%{http_code}' "$url")"; then
+            echo "::error::Coinbase public endpoint transport failure (DNS, connection, TLS, or timeout); provider matrix was not started."
+            exit 1
+          fi
+          if [[ "$http_code" != "200" ]]; then
+            echo "::error::Coinbase public endpoint responded with HTTP $http_code; provider matrix was not started."
+            exit 1
+          fi
+          echo "Coinbase public product endpoint returned HTTP 200 from runner egress."
       - name: Run production deployment verification with fresh Supabase session
         env:
           MITROS_PRODUCTION_API_URL: https://mitros.onrender.com
@@ -48,6 +93,8 @@ jobs:
           MITROS_E2E_USER_EMAIL: ${{ secrets.MITROS_E2E_USER_EMAIL }}
           MITROS_E2E_USER_PASSWORD: ${{ secrets.MITROS_E2E_USER_PASSWORD }}
           MITROS_RUN_DEPLOYMENT_E2E: "true"
+          MITROS_XT_LIVE_ORDERS_ENABLED: "false"
+          MITROS_LIVE_TRADING_ENABLED: "false"
         run: python scripts/run_production_deployment_e2e.py
   sql:
     runs-on: ubuntu-latest
