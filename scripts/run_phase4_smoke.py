@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 import psycopg
@@ -106,14 +107,14 @@ def _verify_persistence(
                 """
                 SELECT count(*)
                 FROM phase4_risk_decisions
-                WHERE id = %s AND proposal_id = %s AND idempotency_key = %s
+                WHERE id = %s::uuid AND proposal_id = %s AND idempotency_key = %s
                 """,
                 (audit_id, proposal_id, idempotency_key),
             )
             decision_count = cursor.fetchone()[0]
 
             cursor.execute(
-                "SELECT count(*) FROM phase4_portfolio_snapshots WHERE id = %s",
+                "SELECT count(*) FROM phase4_portfolio_snapshots WHERE id = %s::uuid",
                 (snapshot_id,),
             )
             snapshot_count = cursor.fetchone()[0]
@@ -123,8 +124,8 @@ def _verify_persistence(
                 SELECT count(*)
                 FROM system_events
                 WHERE event_type = 'RiskEvaluated'
-                  AND correlation_id = %s
-                  AND aggregate_id = %s
+                  AND correlation_id = %s::uuid
+                  AND aggregate_id = %s::uuid
                 """,
                 (correlation_id, proposal_id),
             )
@@ -161,10 +162,10 @@ def main() -> int:
     quote_query = urllib.parse.urlencode({"asset": "BTC/USDT", "venue": "spot"})
     quote = _json_request(f"{backend_url}/api/v1/market/quote?{quote_query}", headers=auth_headers)
     try:
-        price = float(str(quote["price"]))
-    except (KeyError, TypeError, ValueError):
+        price = Decimal(str(quote["price"]))
+    except (KeyError, TypeError, InvalidOperation):
         raise SystemExit("Authenticated verified quote returned no valid price") from None
-    if price <= 0:
+    if not price.is_finite() or price <= 0:
         raise SystemExit("Authenticated verified quote returned a non-positive price")
 
     correlation_id = str(uuid4())
@@ -175,8 +176,8 @@ def main() -> int:
         "asset": "BTC/USDT",
         "direction": "LONG",
         "entry": str(price),
-        "stop_loss": str(price * 0.99),
-        "take_profit": str(price * 1.02),
+        "stop_loss": str(price * Decimal("0.99")),
+        "take_profit": str(price * Decimal("1.02")),
         "requested_notional": "1",
         "idempotency_key": idempotency_key,
     }
