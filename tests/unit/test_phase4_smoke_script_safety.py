@@ -38,3 +38,13 @@ def test_phase4_smoke_has_hard_deployment_sha_gate_and_count_diagnostics() -> No
     assert 'requested_sha={expected_sha} deployed_sha={deployed_sha}' in source
     assert 'if any(count != 1 for count in counts.values()):' in source
     assert 'f"{name}={count}" for name, count in counts.items()' in source
+
+
+
+def test_phase4_smoke_health_check_retries_transient_transport_failures() -> None:
+    source = Path("scripts/run_phase4_smoke.py").read_text(encoding="utf-8")
+    assert "def _health_request(" in source
+    assert 'attempts: int = 3' in source
+    assert 'time.sleep(retry_delay_seconds)' in source
+    assert 'Production health check failed after {attempt} attempt(s): {message}' in source
+    assert 'HTTP request returned invalid JSON' in source

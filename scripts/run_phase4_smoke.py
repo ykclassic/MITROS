@@ -6,6 +6,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import time
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -42,11 +43,41 @@ def _json_request(
             decoded = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"HTTP request failed with status {exc.code}") from None
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        raise RuntimeError("HTTP request failed due to transport or invalid JSON") from None
+    except urllib.error.URLError as exc:
+        # Report only the exception category; never include URLs or response bodies.
+        raise RuntimeError(
+            f"HTTP request failed due to transport ({type(exc.reason).__name__})"
+        ) from None
+    except TimeoutError:
+        raise RuntimeError("HTTP request failed due to transport (TimeoutError)") from None
+    except json.JSONDecodeError:
+        raise RuntimeError("HTTP request returned invalid JSON") from None
     if not isinstance(decoded, dict):
         raise TypeError("HTTP request returned an unexpected JSON shape")
     return decoded
+
+
+def _health_request(url: str, *, attempts: int = 3, retry_delay_seconds: float = 3.0) -> dict[str, object]:
+    """Retry transient health-check failures without hiding the final failure category."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return _json_request(url)
+        except RuntimeError as exc:
+            message = str(exc)
+            retryable = (
+                "due to transport" in message
+                or message.startswith("HTTP request failed with status 5")
+            )
+            if not retryable or attempt == attempts:
+                raise RuntimeError(
+                    f"Production health check failed after {attempt} attempt(s): {message}"
+                ) from None
+            print(
+                f"health_check_retry attempt={attempt}/{attempts} "
+                f"reason={message.replace(' ', '_')}"
+            )
+            time.sleep(retry_delay_seconds)
+    raise RuntimeError("Production health check failed unexpectedly")
 
 
 def obtain_access_token() -> str:
@@ -149,7 +180,7 @@ def main() -> int:
     if not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
         raise SystemExit("MITROS_EXPECTED_DEPLOYED_SHA must be a full 40-character commit SHA")
 
-    health = _json_request(f"{backend_url}/health")
+    health = _health_request(f"{backend_url}/health")
     deployed_sha = str(health.get("build_sha", "")).lower() or "missing"
     if deployed_sha != expected_sha:
         raise SystemExit(
