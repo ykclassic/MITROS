@@ -52,6 +52,10 @@ class BitgetReadOnlyClient:
         ).strip()
         self.base_url = (base_url or os.getenv("MITROS_BITGET_BASE_URL") or "https://api.bitget.com").rstrip("/")
         self._client = client
+        # Permission verification is stable for this short-lived client. Cache only
+        # successful verification so account_snapshot() does not repeat the same
+        # rate-limited authenticated endpoint immediately after an explicit check.
+        self._read_only_key_verified = False
 
     @property
     def configured(self) -> bool:
@@ -141,6 +145,8 @@ class BitgetReadOnlyClient:
         return payload
 
     async def verify_read_only_key(self) -> None:
+        if self._read_only_key_verified:
+            return
         if not self.configured:
             raise BitgetReadOnlyError(
                 "Bitget API credentials are not configured",
@@ -181,6 +187,7 @@ class BitgetReadOnlyClient:
                 "Bitget key lacks a recognized read permission",
                 reason_code="bitget_read_permission_missing",
             )
+        self._read_only_key_verified = True
 
     async def market_ticker(self, asset: str) -> dict[str, Decimal | datetime]:
         symbol = asset.replace("/", "").replace("-", "").upper()

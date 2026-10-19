@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       candidate_commit_sha:
-        description: "Exact current head SHA of PR #74 to verify"
+        description: "Exact current head SHA of the merged PR #74 to verify"
         required: true
         type: string
   # On an unmerged PR, this event is the supported way to run the protected check.
@@ -23,15 +23,16 @@ concurrency:
 
 jobs:
   bitget-smoke-verification:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 74
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.number == 74 || github.event.pull_request.number == 76
     name: Protected Bitget Read-Only Verification
     runs-on: ubuntu-latest
     env:
       CANDIDATE_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.candidate_commit_sha || github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event_name == 'workflow_dispatch' && '74' || github.event.pull_request.number }}
     timeout-minutes: 10
     environment: production-verification
     steps:
-      - name: Validate exact PR #74 candidate SHA
+      - name: Validate exact authorized candidate SHA
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -40,35 +41,42 @@ jobs:
             echo "::error::Candidate must be a full 40-character commit SHA."
             exit 1
           fi
-          pr_json="$(gh api repos/ykclassic/MITROS/pulls/74)"
+          if [[ "$PR_NUMBER" != "74" && "$PR_NUMBER" != "76" ]]; then
+            echo "::error::Only the explicitly authorized PR #74 or PR #76 may run this verification."
+            exit 1
+          fi
+          pr_json="$(gh api "repos/ykclassic/MITROS/pulls/$PR_NUMBER")"
           pr_state="$(jq -r '.state' <<<"$pr_json")"
           pr_merged="$(jq -r '.merged' <<<"$pr_json")"
           pr_branch="$(jq -r '.head.ref' <<<"$pr_json")"
           pr_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
           pr_sha="$(jq -r '.head.sha' <<<"$pr_json")"
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            # Manual dispatch is intentionally post-merge only: it verifies that the exact
-            # immutable PR head still matches the merged PR record.
-            if [[ "$pr_state" != "closed" || "$pr_merged" != "true" ]]; then
-              echo "::error::workflow_dispatch requires PR #74 to be merged and closed."
+            # Manual dispatch remains restricted to the already-merged PR #74.
+            if [[ "$PR_NUMBER" != "74" || "$pr_state" != "closed" || "$pr_merged" != "true" ]]; then
+              echo "::error::workflow_dispatch requires merged and closed PR #74."
               exit 1
             fi
           else
             # PR-triggered verification is allowed only while the candidate is open/unmerged.
             if [[ "$pr_state" != "open" || "$pr_merged" != "false" ]]; then
-              echo "::error::Pull-request verification requires PR #74 to remain open and unmerged."
+              echo "::error::Pull-request verification requires the candidate PR to remain open and unmerged."
               exit 1
             fi
           fi
-          if [[ "$pr_branch" != "phase/phase4-bybit-reconciled" || "$pr_repo" != "ykclassic/MITROS" ]]; then
-            echo "::error::PR #74 does not point to the authorized candidate branch."
+          expected_branch="phase/phase4-bybit-reconciled"
+          if [[ "$PR_NUMBER" == "76" ]]; then
+            expected_branch="phase/bitget-readonly-429"
+          fi
+          if [[ "$pr_branch" != "$expected_branch" || "$pr_repo" != "ykclassic/MITROS" ]]; then
+            echo "::error::PR #$PR_NUMBER does not point to its authorized candidate branch."
             exit 1
           fi
           if [[ "${CANDIDATE_SHA,,}" != "${pr_sha,,}" ]]; then
-            echo "::error::Candidate SHA does not match the current PR #74 head."
+            echo "::error::Candidate SHA does not match the current PR #$PR_NUMBER head."
             exit 1
           fi
-          echo "Candidate SHA verified against the current PR #74 head and event state."
+          echo "Candidate SHA verified against PR #$PR_NUMBER head and event state."
 
       - name: Check out validated candidate
         uses: actions/checkout@v4

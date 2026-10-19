@@ -168,6 +168,9 @@ async def test_bitget_adapter_signs_read_only_requests_and_parses_classic_spot_a
     assert account.balances[1].frozen == Decimal("10")
     assert account.balances[1].btc_value == Decimal("650") / Decimal("65000")
     assert ticker["last"] == Decimal("65000")
+    # Explicit verification followed by account_snapshot() must not issue a
+    # duplicate account-info request that can trigger Bitget HTTP 429.
+    assert sum(request.url.path == "/api/v2/spot/account/info" for request in calls) == 1
     assert all(request.method == "GET" for request in calls)
     assert {request.url.path for request in calls}.issubset({
         "/api/v2/spot/account/info",
