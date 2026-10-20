@@ -6,6 +6,7 @@ from packages.market_data.contracts import Candle,DataQuality
 from packages.market_data.freshness import assess_freshness
 from packages.market_data.router import ProviderRouter
 from packages.market_data.symbols import SymbolMapper
+from packages.market_data.default_symbols import DEFAULT_SYMBOL_MAPPINGS
 
 NOW=datetime(2026,9,23,21,0,tzinfo=UTC)
 
@@ -52,3 +53,34 @@ class GoodProvider:
 async def test_router_fails_over_to_secondary_provider():
     result=await ProviderRouter([FakeProvider(),GoodProvider()]).quote(__import__("packages.market_data.contracts",fromlist=["MarketDataRequest"]).MarketDataRequest(asset="BTC/USD",venue="spot"))
     assert result.provider=="secondary"
+
+
+
+@pytest.mark.parametrize(
+    ("provider", "asset", "expected_symbol"),
+    [
+        ("coinbase", "BTC/USDT", "BTC-USDT"),
+        ("coinbase", "ETH/USDT", "ETH-USDT"),
+        ("coinbase", "SOL/USDT", "SOL-USDT"),
+        ("kraken", "BTC/USDT", "XBTUSDT"),
+        ("kraken", "ETH/USDT", "ETHUSDT"),
+        ("kraken", "SOL/USDT", "SOLUSDT"),
+    ],
+)
+def test_usdt_symbol_mappings_are_explicit(
+    provider: str, asset: str, expected_symbol: str
+) -> None:
+    mapper = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
+    assert mapper.resolve(provider, asset).provider_symbol == expected_symbol
+
+
+def test_usd_symbol_mappings_remain_unchanged() -> None:
+    mapper = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
+    assert mapper.resolve("coinbase", "BTC/USD").provider_symbol == "BTC-USD"
+    assert mapper.resolve("kraken", "BTC/USD").provider_symbol == "BTC/USD"
+
+
+def test_unconfigured_usdt_pair_fails_closed() -> None:
+    mapper = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
+    with pytest.raises(ValueError, match="No symbol mapping for kraken:ADA/USDT"):
+        mapper.resolve("kraken", "ADA/USDT")
