@@ -78,3 +78,9 @@ def test_usd_symbol_mappings_remain_unchanged() -> None:
     mapper = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
     assert mapper.resolve("coinbase", "BTC/USD").provider_symbol == "BTC-USD"
     assert mapper.resolve("kraken", "BTC/USD").provider_symbol == "BTC/USD"
+
+
+def test_unconfigured_usdt_pair_fails_closed() -> None:
+    mapper = SymbolMapper(DEFAULT_SYMBOL_MAPPINGS)
+    with pytest.raises(ValueError, match="No symbol mapping for kraken:ADA/USDT"):
+        mapper.resolve("kraken", "ADA/USDT")
